@@ -26,9 +26,9 @@ BOUNCE_MIN_SPEED = 0.5
 
 # ---- AI providers (from dev.meta.ai/docs and baseten.co/library/muse-spark-open) ----
 PROVIDERS = {
-    "meta":         dict(base="https://api.meta.ai/v1", model="muse-spark-1.3", key_env="MODEL_API_KEY", effort=True, role="system"),
-    "meta_contrib": dict(base="https://api.meta.ai/v1", model="muse-spark-1.3-contributor", key_env="MODEL_API_KEY", effort=True, role="system"),
-    "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open-1026", key_env="BASETEN_API_KEY", effort=False, role="developer"),
+    "meta":         dict(base="https://api.meta.ai/v1", model="muse-spark-1.3", key_env="MODEL_API_KEY", effort=True, role="system", endpoint="/responses"),
+    "meta_contrib": dict(base="https://api.meta.ai/v1", model="muse-spark-1.3-contributor", key_env="MODEL_API_KEY", effort=True, role="system", endpoint="/responses"),
+    "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open-1026", key_env="BASETEN_API_KEY", effort=False, role="developer", endpoint="/chat/completions"),
 }
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # "none" is rejected by Muse Spark (HTTP 400)
 PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "high", "minimal", "low"
