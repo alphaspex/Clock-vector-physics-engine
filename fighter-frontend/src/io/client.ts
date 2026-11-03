@@ -17,16 +17,19 @@ import type {
   SimulationKind,
 } from '../core/commands';
 import type {
+  ApiCheckWireResponse,
   DbCatalogWireResponse,
   DbDeleteWireResponse,
   DbRecordWireResponse,
   DbResetMemoryWireResponse,
   DbResourceListWireResponse,
+  EffectiveConfigWireResponse,
   EventsListWireResponse,
   HealthWireResponse,
   JobWireResponse,
   JobsListWireResponse,
   MemoryWireResponse,
+  ProviderConfigWire,
   ReplayStatusWireResponse,
   ReplayWireResponse,
   RunsWireResponse,
@@ -237,6 +240,32 @@ export const api = {
     return request<DbResetMemoryWireResponse>('/admin/db/reset-memory', {
       method: 'POST',
       body: { target },
+      adminToken,
+    });
+  },
+
+  // ---- Diagnostic & Configuration Endpoints ----
+  getConfig: async (adminToken: string): Promise<Record<string, ProviderConfigWire>> => {
+    const response = await request<EffectiveConfigWireResponse>('/admin/config', { adminToken });
+    return response.providers;
+  },
+
+  setModelOverride: async (
+    adminToken: string,
+    preset: string,
+    model: string,
+  ): Promise<{ ok: boolean }> => {
+    return request<{ ok: boolean }>('/admin/config/set-model', {
+      method: 'POST',
+      body: { preset, model },
+      adminToken,
+    });
+  },
+
+  checkApi: async (adminToken: string, preset: string): Promise<ApiCheckWireResponse> => {
+    return request<ApiCheckWireResponse>('/admin/diagnostic/check-api', {
+      method: 'POST',
+      body: { preset },
       adminToken,
     });
   },

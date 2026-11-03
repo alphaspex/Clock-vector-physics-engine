@@ -16,14 +16,46 @@ def _conn():
     c = db.connect(DSN); db.init(c); return c
 
 
+def _get_provider_config(preset, conn=None):
+    p = dict(PROVIDERS[preset])
+    override = db.get_setting(conn or _conn(), f"model_override_{preset}")
+    if override:
+        p["model"] = override
+        p["overridden"] = True
+    return p
+
+
 def _ask(preset, effort, max_tokens, jid=None):
-    p = PROVIDERS[preset]; key = os.environ.get(p["key_env"], "")
+    p = _get_provider_config(preset); key = os.environ.get(p["key_env"], "")
     def on_event(ev_kind, ev_data):
-        if jid:
-            c = _conn()
-            sev = "error" if "error" in ev_kind else "warn" if "retry" in ev_kind else "info"
-            db.save_event(c, jid, sev, ev_kind, f"AI {preset} ({p['model']}): {ev_kind}", ev_data)
+        c = _conn()
+        sev = "error" if "error" in ev_kind else "warn" if "retry" in ev_kind else "info"
+        msg = f"AI {preset} ({p['model']}): {ev_kind}"
+        # Inject more details into custom log if it's an error or completion
+        if ev_kind == "ai_done":
+            msg += f" | {ev_data.get('elapsed_ms')}ms | {ev_data.get('usage', {})}"
+        elif ev_kind == "ai_error":
+            msg += f" | ERROR: {ev_data.get('error')}"
+        db.save_event(c, jid or "", sev, ev_kind, msg, ev_data)
     return lambda system, user: ai_call.call(p, system, user, effort, max_tokens, key, on_event=on_event)
+
+
+def _get_effective_config():
+    c = _conn()
+    return {k: _get_provider_config(k, c) for k in PROVIDERS}
+
+
+def _set_model_override(preset, model):
+    db.set_setting(_conn(), f"model_override_{preset}", model)
+
+
+def _check_api(preset):
+    p = _get_provider_config(preset); key = os.environ.get(p["key_env"], "")
+    # Simple check call
+    res = ai_call.call(p, "You are a diagnostic tool.", "Respond with 'OK' and nothing else.", "minimal", 10, key)
+    if res.get("error"):
+        return dict(ok=False, error=res["error"], model=p["model"])
+    return dict(ok=True, text=res["text"], model=p["model"], elapsed_ms=res.get("elapsed_ms"))
 
 
 def _compute_replay(kind, n, setup, orders, frames):
@@ -301,6 +333,9 @@ def _ctx():
         db_delete=_db_delete,
         db_delete_batch=_db_delete_batch,
         db_reset_memory=lambda target: db.reset_memory(_conn(), target),
+        get_effective_config=_get_effective_config,
+        set_model_override=_set_model_override,
+        check_api=_check_api,
     )
 
 

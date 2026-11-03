@@ -147,6 +147,27 @@ export interface ReplayStatusWireResponse {
   error?: string;
 }
 
+export interface ProviderConfigWire {
+  base: string;
+  model: string;
+  key_env: string;
+  effort: boolean;
+  role: string;
+  overridden?: boolean;
+}
+
+export interface EffectiveConfigWireResponse {
+  providers: Record<string, ProviderConfigWire>;
+}
+
+export interface ApiCheckWireResponse {
+  ok: boolean;
+  text?: string;
+  model: string;
+  elapsed_ms?: number;
+  error?: string;
+}
+
 
 export interface BackendShapeWire {
   k: string;

@@ -34,6 +34,7 @@ def init(conn):
     _x(conn, f"CREATE TABLE IF NOT EXISTS runs (id {pk}, kind TEXT, n INTEGER, created TEXT, setup TEXT, orders TEXT, frames INTEGER, result TEXT, info TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT, status TEXT, stage TEXT, created TEXT, started REAL, elapsed_ms INTEGER, run_n INTEGER, result TEXT, params TEXT, usage TEXT, error TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS job_events (id {pk}, job_id TEXT, created TEXT, severity TEXT, stage TEXT, message TEXT, metadata TEXT)")
+    _x(conn, "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, val TEXT)")
     conn.commit()
 
 
@@ -431,4 +432,17 @@ def reset_memory(conn, target="all"):
 
     conn.commit()
     return dict(ok=True, deleted_notes=deleted_notes, reset_libraries=reset_libs, target=target)
+
+
+def set_setting(conn, key, val):
+    if _x(conn, "SELECT 1 FROM settings WHERE key=%s", (key,)).fetchone():
+        _x(conn, "UPDATE settings SET val=%s WHERE key=%s", (val, key))
+    else:
+        _x(conn, "INSERT INTO settings (key, val) VALUES (%s,%s)", (key, val))
+    conn.commit()
+
+
+def get_setting(conn, key):
+    r = _x(conn, "SELECT val FROM settings WHERE key=%s", (key,)).fetchone()
+    return r[0] if r else None
 

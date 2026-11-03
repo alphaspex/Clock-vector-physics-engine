@@ -127,6 +127,21 @@ def handle(method, path, body, token, ctx):
             rst_res = ctx["db_reset_memory"](target)
             status = 200 if rst_res.get("ok") else 400
             return status, rst_res
+        if parts == ["admin", "config", "set-model"]:
+            preset, model = body.get("preset"), body.get("model")
+            if preset not in PROVIDERS: return 400, dict(error=f"unknown preset {preset}")
+            if not model: return 400, dict(error="model identifier required")
+            ctx["set_model_override"](preset, model)
+            return 200, dict(ok=True, preset=preset, model=model)
+        if parts == ["admin", "diagnostic", "check-api"]:
+            preset = body.get("preset")
+            if preset not in PROVIDERS: return 400, dict(error=f"unknown preset {preset}")
+            res = ctx["check_api"](preset)
+            return (200, res) if res.get("ok") else (400, res)
+
+    if method == "GET" and is_admin_req:
+        if parts == ["admin", "config"]:
+            return 200, dict(providers=ctx["get_effective_config"]())
 
     # --- Simulation Launch Routes ---
     if method == "POST" and parts in (["practice"], ["fight"]):

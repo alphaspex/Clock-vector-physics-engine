@@ -1,17 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
+  AlertCircle,
   AlertTriangle,
+  CheckCircle2,
   Clock,
   Cpu,
+  Edit3,
   Layers,
+  Loader2,
   Pause,
   Play,
   Radio,
   RefreshCw,
+  Save,
   Zap,
 } from 'lucide-react';
 import type { ActivityEvent, SimulationJob } from '../../core/commands';
+import { api } from '../../io/client';
+import type { ProviderConfigWire, ApiCheckWireResponse } from '../../io/contracts';
 
 interface Props {
   jobs: SimulationJob[];
@@ -31,6 +38,17 @@ export default function ControlRoomPanel({
   onRefresh,
 }: Props) {
   const [autoPoll, setAutoPoll] = useState(true);
+  const [config, setConfig] = useState<Record<string, ProviderConfigWire>>({});
+  const [diagnosticResults, setDiagnosticResults] = useState<Record<string, ApiCheckWireResponse & { checking?: boolean }>>({});
+  const [editModel, setEditModel] = useState<{ preset: string; val: string } | null>(null);
+
+  const loadConfig = useCallback(async () => {
+    if (!adminToken.trim() || !backendOnline) return;
+    try {
+      const res = await api.getConfig(adminToken.trim());
+      setConfig(res);
+    } catch { /* ignore */ }
+  }, [adminToken, backendOnline]);
 
   // Auto-polling interval every 1.5 seconds when active
   useEffect(() => {
@@ -41,8 +59,36 @@ export default function ControlRoomPanel({
     return () => clearInterval(interval);
   }, [autoPoll, adminToken, backendOnline, onRefresh]);
 
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
   const activeJobs = jobs.filter((j) => j.state === 'running');
   const recentJobs = jobs.slice(0, 10);
+
+  const handleCheckApi = async (preset: string) => {
+    setDiagnosticResults(prev => ({ ...prev, [preset]: { ...prev[preset], checking: true, model: config[preset]?.model || '' } }));
+    try {
+      const res = await api.checkApi(adminToken.trim(), preset);
+      setDiagnosticResults(prev => ({ ...prev, [preset]: { ...res, checking: false } }));
+    } catch (err) {
+      setDiagnosticResults(prev => ({
+        ...prev,
+        [preset]: { ok: false, error: err instanceof Error ? err.message : 'Unknown error', checking: false, model: config[preset]?.model || '' }
+      }));
+    }
+  };
+
+  const handleSaveModel = async () => {
+    if (!editModel) return;
+    try {
+      await api.setModelOverride(adminToken.trim(), editModel.preset, editModel.val);
+      setEditModel(null);
+      await loadConfig();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save model override');
+    }
+  };
 
   return (
     <div className="control-room" aria-label="Control room & live monitoring">
@@ -78,7 +124,7 @@ export default function ControlRoomPanel({
           <button
             type="button"
             className="icon-button"
-            onClick={onRefresh}
+            onClick={() => { onRefresh(); void loadConfig(); }}
             title="Refresh now"
             aria-label="Refresh monitoring data"
           >
@@ -90,8 +136,93 @@ export default function ControlRoomPanel({
       {!adminToken.trim() && (
         <div className="notice-banner">
           <AlertTriangle size={15} />
-          <span>Enter the admin token in the TV launcher panel to access live operational monitoring and event feeds.</span>
+          <span>Enter the admin token in the TV launcher panel to access live operational monitoring, event feeds, and API diagnostics.</span>
         </div>
+      )}
+
+      {/* Diagnostic & Model Config Section */}
+      {adminToken.trim() && backendOnline && (
+        <section className="monitoring-card monitoring-card--diagnostic" aria-label="API Diagnostics & Configuration">
+          <div className="card-heading">
+            <div className="flex items-center gap-2">
+              <Zap size={15} className="text-yellow-500" />
+              <h3>API diagnostics & model configuration</h3>
+            </div>
+            <button className="button button--small" onClick={() => void loadConfig()}><RefreshCw size={11} /> Refresh config</button>
+          </div>
+
+          <div className="diagnostic-grid">
+            {Object.entries(config).map(([preset, p]) => {
+              const result = diagnosticResults[preset];
+              const isEditing = editModel?.preset === preset;
+
+              return (
+                <div key={preset} className={`diagnostic-card ${result?.ok === false ? 'diagnostic-card--err' : result?.ok ? 'diagnostic-card--ok' : ''}`}>
+                  <div className="diagnostic-card__head">
+                    <div className="flex flex-col">
+                      <strong className="preset-name">{preset}</strong>
+                      <span className="base-url">{p.base}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        className="icon-button icon-button--small"
+                        onClick={() => handleCheckApi(preset)}
+                        disabled={result?.checking}
+                        title="Fast check this provider"
+                      >
+                        {result?.checking ? <Loader2 size={12} className="animate-spin" /> : <Activity size={12} />}
+                      </button>
+                      <button
+                        className={`icon-button icon-button--small ${p.overridden ? 'text-blue-500' : ''}`}
+                        onClick={() => setEditModel(isEditing ? null : { preset, val: p.model })}
+                        title="Override model identifier"
+                      >
+                        <Edit3 size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="diagnostic-card__body">
+                    <div className="model-display">
+                      <span className="label">Active Model:</span>
+                      {isEditing ? (
+                        <div className="flex gap-1 mt-1">
+                          <input
+                            className="text-input text-input--compact"
+                            value={editModel.val}
+                            onChange={e => setEditModel({ ...editModel, val: e.target.value })}
+                            autoFocus
+                          />
+                          <button className="icon-button icon-button--small icon-button--good" onClick={handleSaveModel}>
+                            <Save size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <code className={`model-id ${p.overridden ? 'model-id--overridden' : ''}`}>{p.model}</code>
+                      )}
+                    </div>
+
+                    {result && !result.checking && (
+                      <div className={`check-result ${result.ok ? 'check-result--ok' : 'check-result--err'}`}>
+                        {result.ok ? (
+                          <>
+                            <CheckCircle2 size={12} />
+                            <span>OK ({result.elapsed_ms}ms): "{result.text}"</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle size={12} />
+                            <span className="error-text">FAIL: {result.error}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {/* Main monitoring grid */}
@@ -178,7 +309,6 @@ export default function ControlRoomPanel({
                       )}
                       {job.usage && (
                         <span className="token-chip">
-
                           <Zap size={10} /> Tokens: {job.usage.prompt + job.usage.completion} (reasoning: {job.usage.reasoning})
                         </span>
                       )}

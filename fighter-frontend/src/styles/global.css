@@ -345,3 +345,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .json-inspector { margin: 0; padding: 12px; background: #f5f6f1; border-radius: 5px; font-family: var(--mono); font-size: 11px; line-height: 1.5; max-height: 55vh; overflow: auto; }
 .select-input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid #dedfd8; border-radius: 4px; font-size: 12px; }
 
+/* --- Diagnostic Grid --- */
+.monitoring-card--diagnostic { min-height: auto !important; margin-bottom: 20px; }
+.diagnostic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 5px; }
+.diagnostic-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid #e1e2dc; border-radius: 6px; background: #fafaf8; transition: all .2s ease; }
+.diagnostic-card--ok { border-color: #cce5b8; background: #f4faed; }
+.diagnostic-card--err { border-color: #f7beb7; background: #fff7f6; }
+.diagnostic-card__head { display: flex; align-items: flex-start; justify-content: space-between; }
+.preset-name { font-size: 13px; font-weight: 600; color: #20211e; }
+.base-url { font-size: 10px; color: #888b81; font-family: var(--mono); }
+.model-display { display: flex; flex-direction: column; gap: 4px; }
+.model-display .label { font-size: 10px; color: #72756b; font-family: var(--mono); text-transform: uppercase; }
+.model-id { font-size: 11px; font-family: var(--mono); padding: 4px 8px; background: #eee; border-radius: 4px; color: #444; word-break: break-all; }
+.model-id--overridden { background: #eaf1f7; color: #28547b; border: 1px solid #d0e0ec; }
+.check-result { display: flex; align-items: flex-start; gap: 6px; padding: 8px; border-radius: 4px; font-size: 11px; line-height: 1.4; }
+.check-result--ok { background: #edf4e4; color: #3e6820; }
+.check-result--err { background: #fbebe8; color: #ab3324; }
+.text-input--compact { height: 28px !important; font-size: 11px !important; }
+.icon-button--good:hover { color: #507d2a; background: #f4faed; border-color: #cce5b8; }
+
