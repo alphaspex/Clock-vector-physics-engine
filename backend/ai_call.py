@@ -28,12 +28,28 @@ def _extract_text(data):
         out = data["output"]
         if isinstance(out, str):
             return out
-        if isinstance(out, list) and len(out) > 0:
-            first = out[0]
-            if isinstance(first, str):
-                return first
-            if isinstance(first, dict):
-                return first.get("text") or first.get("content") or (first.get("message", {}).get("content") if isinstance(first.get("message"), dict) else "")
+        if isinstance(out, list):
+            texts = []
+            for item in out:
+                if isinstance(item, str):
+                    texts.append(item)
+                elif isinstance(item, dict):
+                    # Parse Meta responses API message content array
+                    content = item.get("content")
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, str):
+                                texts.append(c)
+                            elif isinstance(c, dict):
+                                t = c.get("text") or c.get("content") or ""
+                                if t:
+                                    texts.append(t)
+                    elif isinstance(content, str):
+                        texts.append(content)
+                    elif "text" in item and isinstance(item["text"], str):
+                        texts.append(item["text"])
+            if texts:
+                return "\n".join(texts)
         if isinstance(out, dict):
             return out.get("text") or out.get("content") or ""
     if "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
@@ -61,23 +77,23 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
 
     err = "unknown"
     for attempt in range(retries + 1):
-        # Try primary endpoint, then fallback endpoint if primary returns 404
         endpoints = [primary_ep, fallback_ep]
         for ep_idx, ep in enumerate(endpoints):
             url = preset["base"] + ep
             
             if ep == "/responses":
+                # Meta official /responses API body format (uses max_output_tokens, NO max_tokens)
                 body = {
                     "model": preset["model"],
                     "input": f"{system}\n\n{user}" if system else user,
                     "instructions": system,
-                    "messages": [{"role": preset["role"], "content": system}, {"role": "user", "content": user}],
-                    "max_tokens": max_tokens,
                     "max_output_tokens": max_tokens,
                 }
                 if preset["effort"] and effort:
+                    body["reasoning"] = {"effort": effort}
                     body["reasoning_effort"] = effort
             else:
+                # Standard OpenAI chat completions format
                 body = {
                     "model": preset["model"],
                     "max_tokens": max_tokens,
@@ -93,15 +109,22 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                     msg = _extract_text(data)
                     u = data.get("usage") or {}
                     if not isinstance(u, dict): u = {}
+                    
+                    prompt_toks = u.get("prompt_tokens") or u.get("input_tokens") or 0
+                    comp_toks = u.get("completion_tokens") or u.get("output_tokens") or 0
+                    out_details = u.get("output_tokens_details") or u.get("completion_tokens_details") or {}
+                    if not isinstance(out_details, dict): out_details = {}
+                    reason_toks = out_details.get("reasoning_tokens") or u.get("reasoning_tokens") or 0
+
                     elapsed_ms = int((time.time() - t0) * 1000)
                     res = dict(
                         text=msg,
                         error=None,
                         elapsed_ms=elapsed_ms,
                         usage=dict(
-                            prompt=u.get("prompt_tokens") or u.get("input_tokens") or 0,
-                            completion=u.get("completion_tokens") or u.get("output_tokens") or 0,
-                            reasoning=(u.get("completion_tokens_details") or {}).get("reasoning_tokens") or u.get("reasoning_tokens") or 0,
+                            prompt=prompt_toks,
+                            completion=comp_toks,
+                            reasoning=reason_toks,
                         ),
                     )
                     if on_event:
@@ -113,7 +136,7 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
 
             err = f"{preset['model']} HTTP {status}: {(data.get('error') or {}).get('message', data) if isinstance(data, dict) else data}"
 
-            # If 404 on primary endpoint, attempt fallback endpoint
+            # If 404 on primary endpoint, attempt fallback endpoint in same attempt
             if status == 404 and ep_idx == 0:
                 continue
 
