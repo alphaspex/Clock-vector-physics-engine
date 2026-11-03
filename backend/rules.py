@@ -5,10 +5,10 @@ import numpy as np
 from config import *
 
 
-def judge(palive, lalive, core_xz, out_t, t, spec):
+def judge(palive, lalive, core_xz, out_t, t, spec, dt=DT):
     out, lost = out_t.copy(), np.zeros(spec.nf, bool)
     for f in range(spec.nf):
-        out[f] = out[f] + DT if np.hypot(*core_xz[f]) > ARENA_R else 0.0
+        out[f] = out[f] + dt if np.hypot(*core_xz[f]) > ARENA_R else 0.0
         lost[f] = (not palive[spec.head[f]]) or (not lalive[spec.neck[f]]) or out[f] >= OUT_SECONDS
     result = None
     if spec.nf == 2:

@@ -1,6 +1,8 @@
 """CONFIG: constants only. No functions, no logic. Every other file reads these numbers."""
 FPS = 30
 DT = 1.0 / FPS
+LIVE_FPS = 7
+LIVE_DT = 1.0 / LIVE_FPS
 SUBSTEPS = 8          # physics steps per frame (1 = exactly one step per frame)
 ITERS = 8             # link/contact solver passes per physics step
 G = 9.81

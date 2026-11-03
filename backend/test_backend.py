@@ -130,7 +130,7 @@ ok(h("POST", "/replay/practice/1/compile", None, "T") == 202 and h("POST", "/rep
 import server
 server.DSN = "/tmp/t_fighter.db"
 if os.path.exists(server.DSN): os.remove(server.DSN)
-server._ask = lambda preset, effort, mt: (lambda s, u: dict(text="x\nmove up = L_shoulder 120,0 1\ndo up", usage=dict(prompt=1, completion=1, reasoning=0), error=None))
+server._ask = lambda preset, effort, mt, jid=None: (lambda s, u: dict(text="x\nmove up = L_shoulder 120,0 1\ndo up", usage=dict(prompt=1, completion=1, reasoning=0), error=None))
 os.environ["ADMIN_TOKEN"] = "T"
 out = server.run_practice(dict(ai="A", preset="meta", interval=2, effort="high", seconds=4)); ok(out["run"] == 1, "server.run_practice saved run 1")
 out = server.run_fight(dict(presets=["meta", "baseten"], efforts=["minimal", "minimal"], interval=2, seconds=4)); ok(out["run"] == 1, f"server.run_fight saved run 1, result {out['result']}")
