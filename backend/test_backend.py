@@ -20,28 +20,51 @@ def fake(statuses):
         return (200, dict(choices=[dict(message=dict(content="do x"))], usage=dict(prompt_tokens=10, completion_tokens=7, completion_tokens_details=dict(reasoning_tokens=5))), {}) if st == 200 else (st, dict(error=dict(message="boom")), {})
     return post
 
-# Test 1: Meta provider primary endpoint /responses API body shape
+# Test 1: Meta provider primary endpoint /responses API body shape and constraints
 seen.clear()
-r = ai_call.call(PROVIDERS["meta"], "SYSTEM_PROMPT", "USER_PROMPT", "high", 100, "KEY", post=fake([200]), sleep=lambda s: None)
-ok(r["text"] == "do x" and len(seen) == 1, "Meta call succeeded")
+def fake_responses(statuses):
+    it = iter(statuses)
+    def post(url, headers, b, timeout):
+        seen.append((url, headers, b)); st = next(it)
+        return (200, dict(
+            id="resp_123",
+            object="response",
+            status="completed",
+            model="muse-spark-1.3",
+            output=[dict(type="message", role="assistant", content=[dict(type="output_text", text="Parsed output")])],
+            usage=dict(input_tokens=15, output_tokens=10)
+        ), {}) if st == 200 else (st, dict(error=dict(message="boom")), {})
+    return post
+
+r = ai_call.call(PROVIDERS["meta"], "SYSTEM_PROMPT", "USER_PROMPT", "high", 5, "KEY", post=fake_responses([200]), sleep=lambda s: None)
+ok(r["text"] == "Parsed output" and r["usage"]["prompt"] == 15 and r["usage"]["completion"] == 10, "Meta official responses text and usage parsed")
 req_body = seen[0][2]
 ok(seen[0][0] == "https://api.meta.ai/v1/responses", "Meta uses /responses endpoint")
 ok(req_body["input"] == "USER_PROMPT" and req_body["instructions"] == "SYSTEM_PROMPT", "input is user, instructions is system")
-ok(req_body.get("reasoning") == {"effort": "high"} and "reasoning_effort" not in req_body, "Meta /responses contains reasoning but NEVER reasoning_effort")
+ok(req_body["max_output_tokens"] == 16, "max_output_tokens is clamped to at least 16")
+ok("max_tokens" not in req_body and "messages" not in req_body and "reasoning_effort" not in req_body, "max_tokens, messages, reasoning_effort NEVER sent to /responses")
+ok(req_body.get("reasoning") == {"effort": "high"}, "reasoning effort object set correctly")
 
-# Test 2: Chat completions branch retains reasoning_effort
+# Test 2: Effort 'none' omits reasoning object from /responses
+seen.clear()
+ai_call.call(PROVIDERS["meta"], "S", "U", "none", 500, "KEY", post=fake_responses([200]), sleep=lambda s: None)
+ok("reasoning" not in seen[0][2] and "reasoning_effort" not in seen[0][2], "reasoning 'none' omits reasoning field entirely")
+
+# Test 3: Chat completions branch retains reasoning_effort, max_tokens, and messages
 seen.clear()
 cc_provider = dict(PROVIDERS["meta"], endpoint="/chat/completions")
 r = ai_call.call(cc_provider, "S", "U", "medium", 100, "KEY", post=fake([200]), sleep=lambda s: None)
-ok("reasoning_effort" in seen[0][2] and seen[0][2]["reasoning_effort"] == "medium", "Chat completions retains reasoning_effort")
+cc_body = seen[0][2]
+ok("reasoning_effort" in cc_body and cc_body["reasoning_effort"] == "medium", "Chat completions retains reasoning_effort")
+ok("max_tokens" in cc_body and "messages" in cc_body and "reasoning" not in cc_body, "Chat completions retains max_tokens and messages")
 
-# Test 3: Requests when reasoning effort is disabled
+# Test 4: Requests when reasoning effort is disabled
 seen.clear()
 no_effort_provider = dict(PROVIDERS["meta"], effort=False)
 ai_call.call(no_effort_provider, "S", "U", "high", 100, "KEY", post=fake([200]), sleep=lambda s: None)
 ok("reasoning" not in seen[0][2] and "reasoning_effort" not in seen[0][2], "Disabled reasoning effort sends no reasoning fields")
 
-# Test 4: Existing fallback and retry behavior
+# Test 5: Existing fallback and retry behavior
 seen.clear()
 r = ai_call.call(PROVIDERS["meta"], "S", "U", "high", 100, "KEY", post=fake([429, 200]), sleep=lambda s: None)
 ok(r["text"] == "do x" and len(seen) == 2, "429 retry still works")

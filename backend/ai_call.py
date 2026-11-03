@@ -82,14 +82,15 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
             url = preset["base"] + ep
             
             if ep == "/responses":
-                # Meta official /responses API body format (uses max_output_tokens, NO max_tokens)
+                # Meta official /responses API body format (uses max_output_tokens >= 16, NO max_tokens, NO messages, NO reasoning_effort)
+                out_tokens = max(16, int(max_tokens or 512))
                 body = {
                     "model": preset["model"],
                     "input": user,
                     "instructions": system,
-                    "max_output_tokens": max_tokens,
+                    "max_output_tokens": out_tokens,
                 }
-                if preset["effort"] and effort:
+                if preset["effort"] and effort and effort != "none":
                     body["reasoning"] = {"effort": effort}
             else:
                 # Standard OpenAI chat completions format
@@ -98,7 +99,7 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                     "max_tokens": max_tokens,
                     "messages": [{"role": preset["role"], "content": system}, {"role": "user", "content": user}],
                 }
-                if preset["effort"] and effort:
+                if preset["effort"] and effort and effort != "none":
                     body["reasoning_effort"] = effort
 
             status, data, hdr = post(url, headers, body, timeout)
