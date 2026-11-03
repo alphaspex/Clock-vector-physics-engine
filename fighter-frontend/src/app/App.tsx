@@ -9,6 +9,7 @@ import {
   Radio,
   RadioTower,
   RotateCcw,
+  Terminal,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -17,13 +18,14 @@ import RunHistory from '../features/history/RunHistory';
 import PlaybackBar from '../features/playback/PlaybackBar';
 import ControlRoomPanel from '../features/monitoring/ControlRoomPanel';
 import DatabaseManager from '../features/database/DatabaseManager';
+import LiveLogsPanel from '../features/logs/LiveLogsPanel';
 import { usePlayback } from '../features/playback/usePlayback';
 import ThreeSketchViewer from '../viewer/ThreeSketchViewer';
 import StatusDot from '../components/StatusDot';
 import { getConfiguredApiUrl } from '../io/client';
 import { useSimulation } from './useSimulation';
 
-type AppTab = 'tv' | 'control_room' | 'database';
+type AppTab = 'tv' | 'control_room' | 'database' | 'live_logs';
 
 export default function App() {
   const simulation = useSimulation();
@@ -106,6 +108,15 @@ export default function App() {
           >
             <Database size={14} />
             <span>Database Manager</span>
+          </button>
+          <button
+            type="button"
+            className={`topbar-nav__item ${activeTab === 'live_logs' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('live_logs')}
+          >
+            <Terminal size={14} />
+            <span>Live Logs</span>
+            <span className="live-indicator-dot live-indicator-dot--pulse" />
           </button>
         </nav>
 
@@ -297,6 +308,16 @@ export default function App() {
           />
         </div>
       )}
+
+      {activeTab === 'live_logs' && (
+        <div className="section-container">
+          <LiveLogsPanel
+            backendOnline={simulation.connection === 'online'}
+            adminToken={simulation.adminToken}
+          />
+        </div>
+      )}
+
 
       <footer className="global-footer">
         <span>FIGHTER CONTROL ROOM / 2.0.0</span>

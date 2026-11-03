@@ -76,6 +76,16 @@ def handle(method, path, body, token, ctx):
         if len(parts) == 4 and parts[0] == "replay" and parts[1] in ("practice", "fight") and parts[2].isdigit() and parts[3] == "status":
             st = ctx["replay_status"](parts[1], int(parts[2]))
             return (200, st) if st else (404, dict(error="no such round"))
+        if parts == ["logs"]:
+            limit = int(query.get("limit", 200))
+            since_id = int(query["since_id"]) if "since_id" in query and query["since_id"].isdigit() else None
+            level = query.get("level")
+            subsystem = query.get("subsystem")
+            search = query.get("search")
+            logs, max_id = ctx["get_logs"](since_id=since_id, limit=limit, level=level, subsystem=subsystem, search=search)
+            status = ctx["server_status"]()
+            return 200, dict(logs=logs, status=status, max_id=max_id)
+
 
     # --- Admin Authentication Barrier for all remaining routes ---
     is_admin_req = parts and parts[0] == "admin"
@@ -94,6 +104,15 @@ def handle(method, path, body, token, ctx):
             limit = int(query.get("limit", 100))
             since_id = int(query["since_id"]) if "since_id" in query and query["since_id"].isdigit() else None
             return 200, dict(events=ctx["list_events"](limit, since_id))
+        if parts == ["admin", "logs"]:
+            limit = int(query.get("limit", 200))
+            since_id = int(query["since_id"]) if "since_id" in query and query["since_id"].isdigit() else None
+            level = query.get("level")
+            subsystem = query.get("subsystem")
+            search = query.get("search")
+            logs, max_id = ctx["get_logs"](since_id=since_id, limit=limit, level=level, subsystem=subsystem, search=search)
+            status = ctx["server_status"]()
+            return 200, dict(logs=logs, status=status, max_id=max_id)
         if parts == ["admin", "db", "catalog"]:
             return 200, dict(catalog=ctx["db_catalog"]())
         if len(parts) == 3 and parts[:2] == ["admin", "db"]:
@@ -116,6 +135,13 @@ def handle(method, path, body, token, ctx):
             return status, del_res
 
     if method == "POST" and is_admin_req:
+        if parts == ["admin", "logs", "clear"]:
+            ctx["clear_logs"]()
+            return 200, dict(ok=True)
+        if parts == ["admin", "logs", "test"]:
+            msg = body.get("message", "Operator manual test ping")
+            entry = ctx["emit_log"]("INFO", "SYSTEM", msg, source="client_test_ping", client_payload=body)
+            return 200, dict(ok=True, log=entry)
         if len(parts) == 4 and parts[:2] == ["admin", "db"] and parts[3] == "delete-batch":
             res_key = parts[2]
             ids = body.get("ids", [])
@@ -138,6 +164,19 @@ def handle(method, path, body, token, ctx):
             if preset not in PROVIDERS: return 400, dict(error=f"unknown preset {preset}")
             res = ctx["check_api"](preset)
             return (200, res) if res.get("ok") else (400, res)
+
+    # --- Convenience Public Log actions ---
+    if method == "POST":
+        if parts == ["logs", "clear"]:
+            if ctx.get("admin_token") and token != ctx["admin_token"]:
+                return 401, dict(error="bad or missing X-Token")
+            ctx["clear_logs"]()
+            return 200, dict(ok=True)
+        if parts == ["logs", "test"]:
+            msg = body.get("message", "Operator manual test ping")
+            entry = ctx["emit_log"]("INFO", "SYSTEM", msg, source="client_test_ping", client_payload=body)
+            return 200, dict(ok=True, log=entry)
+
 
     if method == "GET" and is_admin_req:
         if parts == ["admin", "config"]:

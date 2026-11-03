@@ -6,6 +6,10 @@ An order = dict(frame, f, text, steps): exactly what a replay needs."""
 import concurrent.futures as cf, math
 from config import *
 import sim, moves, observe, prompts
+try:
+    import server_logs
+except ImportError:
+    server_logs = None
 
 
 def _plain(steps):
@@ -48,6 +52,8 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             lib, steps, errs = _decide(ans, lib, info)
             orders.append(dict(frame=st.frame, f=0, text=ans["text"][:800], steps=steps))
             rn = sim.give_orders(rn, 0, steps)
+            if server_logs:
+                server_logs.emit("DEBUG", "SIMULATION", f"Practice frame {st.frame}: compiled {len(steps)} motor actuation steps", errors=errs)
 
         last = st.frame * DT
         # Step physics until next decision point or max_frame
@@ -56,11 +62,15 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             break
         for _ in range(ticks):
             st, rn, rec = sim.tick(spec, st, rn); events += rec
+            if server_logs and rec:
+                for r in rec:
+                    server_logs.emit("INFO", "PHYSICS", f"Practice Frame {st.frame} impact: {r.get('event', 'touch')}", **r)
 
         pct = min(100.0, round((st.frame / max_frame) * 100, 1))
         if on_progress:
             on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
                              frame=st.frame, max_frame=max_frame, percent=pct))
+
 
     return dict(library=lib, orders=orders, frames=st.frame, events=events, usage=usage, result=None,
                 setup=dict(nf=1, gap=3.0, offset_x=0.0), final_p=st.p.copy())
@@ -95,6 +105,8 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
                 libs[f], steps, errs[f] = _decide(ans, libs[f], info)
                 orders.append(dict(frame=st.frame, f=f, text=ans["text"][:800], steps=steps))
                 rn = sim.give_orders(rn, f, steps)
+                if server_logs:
+                    server_logs.emit("DEBUG", "SIMULATION", f"Fight Frame {st.frame}: Fighter {'AB'[f]} ordered {len(steps)} steps", errors=errs[f])
 
             last = st.frame * DT
             ticks = min(int(interval * FPS), max_frame - st.frame)
@@ -103,11 +115,18 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
             for _ in range(ticks):
                 if st.result is not None: break
                 st, rn, rec = sim.tick(spec, st, rn); events += rec
+                if server_logs and rec:
+                    for r in rec:
+                        server_logs.emit("INFO", "PHYSICS", f"Fight Frame {st.frame} combat impact: {r.get('event', 'touch')}", **r)
+
+            if server_logs and st.result:
+                server_logs.emit("WARN", "RULES", f"Fight match determined at frame {st.frame}! Winner/Result: {st.result}")
 
             pct = min(100.0, round((st.frame / max_frame) * 100, 1))
             if on_progress:
                 on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
                                  frame=st.frame, max_frame=max_frame, result=st.result, percent=pct))
+
 
     return dict(libs=libs, orders=orders, frames=st.frame, events=events, usage=usage, result=st.result,
                 setup=dict(nf=2, gap=gap, offset_x=offset_x), final_p=st.p.copy())

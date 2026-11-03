@@ -28,11 +28,13 @@ import type {
   HealthWireResponse,
   JobWireResponse,
   JobsListWireResponse,
+  LiveLogsWireResponse,
   MemoryWireResponse,
   ProviderConfigWire,
   ReplayStatusWireResponse,
   ReplayWireResponse,
   RunsWireResponse,
+  ServerLogEntryWire,
   StartFightWireInput,
   StartJobWireResponse,
   StartPracticeWireInput,
@@ -269,7 +271,52 @@ export const api = {
       adminToken,
     });
   },
+
+  // ---- Real-Time Live Server Logs Endpoints ----
+  getLiveLogs: async (
+    adminToken?: string,
+    params?: {
+      sinceId?: number;
+      limit?: number;
+      level?: string;
+      subsystem?: string;
+      search?: string;
+    },
+  ): Promise<LiveLogsWireResponse> => {
+    const q = new URLSearchParams();
+    if (params?.sinceId !== undefined) q.set('since_id', String(params.sinceId));
+    if (params?.limit !== undefined) q.set('limit', String(params.limit));
+    if (params?.level && params.level !== 'ALL') q.set('level', params.level);
+    if (params?.subsystem && params.subsystem !== 'ALL') q.set('subsystem', params.subsystem);
+    if (params?.search && params.search.trim()) q.set('search', params.search.trim());
+
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    // Prefer /admin/logs if adminToken is available, otherwise /logs
+    const path = adminToken?.trim() ? `/admin/logs${qs}` : `/logs${qs}`;
+    return request<LiveLogsWireResponse>(path, { adminToken: adminToken?.trim() || undefined });
+  },
+
+  clearLiveLogs: async (adminToken?: string): Promise<{ ok: boolean }> => {
+    const path = adminToken?.trim() ? '/admin/logs/clear' : '/logs/clear';
+    return request<{ ok: boolean }>(path, {
+      method: 'POST',
+      adminToken: adminToken?.trim() || undefined,
+    });
+  },
+
+  emitTestLog: async (
+    adminToken?: string,
+    message?: string,
+  ): Promise<{ ok: boolean; log?: ServerLogEntryWire }> => {
+    const path = adminToken?.trim() ? '/admin/logs/test' : '/logs/test';
+    return request<{ ok: boolean; log?: ServerLogEntryWire }>(path, {
+      method: 'POST',
+      body: { message: message || 'Operator diagnostic ping' },
+      adminToken: adminToken?.trim() || undefined,
+    });
+  },
 };
+
 
 export function getConfiguredApiUrl(): string {
   return API_BASE_URL;

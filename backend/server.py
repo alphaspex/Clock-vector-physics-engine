@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from functools import partial
 from config import *
 import ai_call, api, db, digest, prompts, replay as replay_mod, rounds, body as body_mod
+import server_logs
 
 DSN = os.environ.get("DATABASE_URL", "fighter.db")
 JOBS, CACHE, LOCK = {}, {}, threading.Lock()
@@ -34,8 +35,14 @@ def _ask(preset, effort, max_tokens, jid=None):
         # Inject more details into custom log if it's an error or completion
         if ev_kind == "ai_done":
             msg += f" | {ev_data.get('elapsed_ms')}ms | {ev_data.get('usage', {})}"
+            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid or 'direct'} - AI completed in {ev_data.get('elapsed_ms')}ms ({p['model']})", **ev_data)
         elif ev_kind == "ai_error":
             msg += f" | ERROR: {ev_data.get('error')}"
+            server_logs.emit("ERROR", "AI_ENGINE", f"Job {jid or 'direct'} - AI error ({p['model']}): {ev_data.get('error')}", **ev_data)
+        elif ev_kind == "ai_retry":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid or 'direct'} - AI retry #{ev_data.get('attempt')}: {ev_data.get('error')}", **ev_data)
+        elif ev_kind == "ai_start":
+            server_logs.emit("DEBUG", "AI_ENGINE", f"Job {jid or 'direct'} - Dispatched prompt to {p['model']} (max_tokens={ev_data.get('max_tokens')})", **ev_data)
         db.save_event(c, jid or "", sev, ev_kind, msg, ev_data)
     return lambda system, user: ai_call.call(p, system, user, effort, max_tokens, key, on_event=on_event)
 
@@ -107,6 +114,8 @@ def _replay_status(kind, n):
 
 def _run_practice(jid, p):
     conn = _conn()
+    server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Job {jid} running {p.get('seconds', PRACTICE_SECONDS)}s practice", job_id=jid)
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} started practice simulation for Fighter {p['ai']}", params=p)
     with LOCK:
         JOBS[jid].update(stage="simulation")
         db.save_or_update_job(conn, JOBS[jid])
@@ -122,7 +131,14 @@ def _run_practice(jid, p):
                 if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
                 if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
                 if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
-        if ev.get("stage") == "ai_error":
+        stg = ev.get("stage")
+        if stg == "decision":
+            server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Decision #{ev.get('decision')}/{ev.get('target_decisions')} (Frame {ev.get('frame')}/{ev.get('max_frame')})", job_id=jid)
+            server_logs.emit("DEBUG", "SIMULATION", f"Job {jid} decision #{ev.get('decision')} at frame {ev.get('frame')} ({ev.get('percent')}%)", **ev)
+        elif stg == "physics":
+            server_logs.emit("DEBUG", "PHYSICS", f"Job {jid} physics advanced to frame {ev.get('frame')}/{ev.get('max_frame')}", **ev)
+        elif stg == "ai_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} AI error: {ev.get('error')}", **ev)
             db.save_event(_conn(), jid, "warn", "ai_error", ev.get("error", "AI error"), ev)
 
     r = rounds.practice(_ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS, jid=jid), INFO,
@@ -130,6 +146,8 @@ def _run_practice(jid, p):
                         p["interval"], p.get("seconds", PRACTICE_SECONDS), on_progress=on_progress)
 
     # Persistence stage
+    server_logs.set_activity("Saving practice run", f"Writing practice data to database ({r['frames']} frames)", job_id=jid)
+    server_logs.emit("INFO", "DATABASE", f"Job {jid} saving {r['frames']} practice frames to database", usage=r["usage"])
     with LOCK:
         JOBS[jid].update(stage="saving", elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
         db.save_or_update_job(conn, JOBS[jid])
@@ -139,6 +157,8 @@ def _run_practice(jid, p):
     n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
 
     # Replay generation stage
+    server_logs.set_activity(f"Preparing Replay: Practice #{n}", f"Computing 3D skeletal frames for #{n}", job_id=jid)
+    server_logs.emit("INFO", "CACHE", f"Job {jid} computing 3D skeletal replay for practice #{n}")
     with LOCK:
         JOBS[jid].update(stage="preparing_replay", run=n, elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
         db.save_or_update_job(conn, JOBS[jid])
@@ -152,9 +172,14 @@ def _run_practice(jid, p):
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "ready", f"Practice #{n} is ready for replay playback", dict(run=n, frames=r["frames"]))
 
+    server_logs.set_activity("Idle - Awaiting requests", f"Practice #{n} ready ({r['frames']} frames, {elapsed}ms)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Practice #{n} successfully in {elapsed}ms", run=n, frames=r["frames"])
+
 
 def _run_fight(jid, p):
     conn = _conn()
+    server_logs.set_activity("Fighting: Fighter A vs Fighter B", f"Job {jid} running {p.get('seconds', FIGHT_SECONDS)}s match", job_id=jid)
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} started fight match Fighter A vs Fighter B", params=p)
     with LOCK:
         JOBS[jid].update(stage="simulation")
         db.save_or_update_job(conn, JOBS[jid])
@@ -170,7 +195,15 @@ def _run_fight(jid, p):
                 if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
                 if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
                 if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
-        if ev.get("stage") == "ai_error":
+        stg = ev.get("stage")
+        if stg == "decision":
+            server_logs.set_activity("Fighting: Fighter A vs Fighter B", f"Decision #{ev.get('decision')}/{ev.get('target_decisions')} (Frame {ev.get('frame')}/{ev.get('max_frame')})", job_id=jid)
+            server_logs.emit("DEBUG", "SIMULATION", f"Job {jid} fight decision #{ev.get('decision')} at frame {ev.get('frame')} ({ev.get('percent')}%)", **ev)
+        elif stg == "physics":
+            res_str = f" [Result: {ev.get('result')}]" if ev.get("result") else ""
+            server_logs.emit("DEBUG", "PHYSICS", f"Job {jid} physics frame {ev.get('frame')}/{ev.get('max_frame')}{res_str}", **ev)
+        elif stg == "ai_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} fighter {ev.get('fighter')} error: {ev.get('error')}", **ev)
             db.save_event(_conn(), jid, "warn", "ai_error", ev.get("error", "AI error"), ev)
 
     ais = ("A", "B")
@@ -179,6 +212,8 @@ def _run_fight(jid, p):
                      p["interval"], p.get("seconds", FIGHT_SECONDS), on_progress=on_progress)
 
     # Persistence stage
+    server_logs.set_activity("Saving fight result", f"Result: {r['result'] or 'draw'}, {r['frames']} frames", job_id=jid)
+    server_logs.emit("INFO", "DATABASE", f"Job {jid} saving fight result: {r['result'] or 'draw'}", frames=r["frames"])
     with LOCK:
         JOBS[jid].update(stage="saving", elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
         db.save_or_update_job(conn, JOBS[jid])
@@ -187,6 +222,7 @@ def _run_fight(jid, p):
     n = db.save_run(conn, "fight", r["setup"], r["orders"], r["frames"], r["result"], dict(p, usage=r["usage"]))
 
     # Memory reflections
+    server_logs.set_activity(f"Formulating AI Memories for Fight #{n}", f"Generating tactical lessons", job_id=jid)
     for f, a in enumerate(ais):
         db.save_library(conn, a, r["libs"][f])
         ans = _ask(p["presets"][f], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid)(
@@ -194,8 +230,11 @@ def _run_fight(jid, p):
         if not ans.get("error") and ans.get("text", "").strip():
             db.save_note(conn, a, "fight", n, ans["text"].strip()[:NOTE_MAX_CHARS])
             db.save_event(conn, jid, "info", "memory", f"Fighter {a} stored post-fight memory note for round #{n}")
+            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {a} saved post-fight memory note", note_preview=ans["text"][:100])
 
     # Replay preparation stage
+    server_logs.set_activity(f"Preparing Replay: Fight #{n}", f"Computing 3D skeletal frames for #{n}", job_id=jid)
+    server_logs.emit("INFO", "CACHE", f"Job {jid} computing 3D skeletal replay for fight #{n}")
     with LOCK:
         JOBS[jid].update(stage="preparing_replay", run=n, result=r["result"], elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
         db.save_or_update_job(conn, JOBS[jid])
@@ -208,6 +247,9 @@ def _run_fight(jid, p):
         JOBS[jid].update(status="done", stage="ready", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed)
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "ready", f"Fight #{n} is ready for replay playback", dict(run=n, result=r["result"], frames=r["frames"]))
+
+    server_logs.set_activity("Idle - Awaiting requests", f"Fight #{n} ready (Winner: {r['result'] or 'draw'}, {elapsed}ms)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Fight #{n} successfully. Winner: {r['result'] or 'draw'} ({elapsed}ms)", run=n, result=r["result"])
 
 
 def run_practice(p):
@@ -336,6 +378,10 @@ def _ctx():
         get_effective_config=_get_effective_config,
         set_model_override=_set_model_override,
         check_api=_check_api,
+        get_logs=server_logs.get_logs,
+        clear_logs=server_logs.clear_logs,
+        server_status=server_logs.get_summary,
+        emit_log=server_logs.emit,
     )
 
 
@@ -366,12 +412,26 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _go(self, method):
+        t0 = time.time()
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        # Avoid noisy self-logging when the client is continuously polling /logs
+        is_log_polling = "/logs" in self.path
+        if not is_log_polling:
+            server_logs.emit("DEBUG", "HTTP", f"{method} {self.path} incoming from {client_ip}")
+
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}") if n else {}
             code, payload = api.handle(method, self.path, body, self.headers.get("X-Token"), _ctx())
         except Exception as e:
             code, payload = 500, dict(error=repr(e))
+            server_logs.emit("ERROR", "HTTP", f"Exception processing {method} {self.path}: {repr(e)}", error=str(e), client=client_ip)
+
+        elapsed_ms = int((time.time() - t0) * 1000)
+        if not is_log_polling:
+            lvl = "INFO" if code < 400 else ("WARN" if code < 500 else "ERROR")
+            server_logs.emit(lvl, "HTTP", f"{method} {self.path} -> {code} ({elapsed_ms}ms)", code=code, duration_ms=elapsed_ms, client=client_ip)
+
         self._send(code, payload)
 
     def do_GET(self): self._go("GET")
@@ -382,6 +442,8 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+    server_logs.emit("INFO", "SYSTEM", f"Fighter server listening on port {port}", dsn=DSN, db_type="postgres" if DSN.startswith("postgres") else "sqlite", token_configured=bool(os.environ.get("ADMIN_TOKEN")))
     print(f"fighter server on :{port}  db={'postgres' if DSN.startswith('postgres') else DSN}  token set={bool(os.environ.get('ADMIN_TOKEN'))}")
     ThreadingHTTPServer(("0.0.0.0", port), H).serve_forever()
+
 

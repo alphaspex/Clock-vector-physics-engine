@@ -215,3 +215,30 @@ export interface MemoryWireResponse {
   moves: string[];
   chains: Record<string, unknown>;
 }
+
+export interface ServerLogEntryWire {
+  id: number;
+  timestamp: number;
+  iso: string;
+  level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | string;
+  subsystem: 'HTTP' | 'SIMULATION' | 'AI_ENGINE' | 'PHYSICS' | 'DATABASE' | 'CACHE' | 'SYSTEM' | 'RULES' | string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ServerStatusWire {
+  uptime_seconds: number;
+  total_logs: number;
+  buffer_size: number;
+  activity: string;
+  detail?: string;
+  active_job?: string;
+  status: string;
+}
+
+export interface LiveLogsWireResponse {
+  logs: ServerLogEntryWire[];
+  status: ServerStatusWire;
+  max_id: number;
+}
+

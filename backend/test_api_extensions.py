@@ -114,6 +114,10 @@ mock_ctx = dict(
     db_delete=lambda r, iid: dict(ok=True, deleted=1),
     db_delete_batch=lambda r, ids: dict(ok=True, deleted=len(ids)),
     db_reset_memory=lambda target: dict(ok=True, deleted_notes=0, reset_libraries=2),
+    get_logs=lambda since_id=None, limit=200, level=None, subsystem=None, search=None: ([dict(id=1, message="test log", level="INFO", subsystem="SYSTEM")], 1),
+    clear_logs=lambda: True,
+    server_status=lambda: dict(status="online", uptime_seconds=10.0, total_logs=1, activity="Idle"),
+    emit_log=lambda lvl, sub, msg, **det: dict(id=2, level=lvl, subsystem=sub, message=msg, details=det),
 )
 
 h = lambda m, p, b=None, t=None: api.handle(m, p, b, t, mock_ctx)
@@ -123,11 +127,16 @@ ok(h("GET", "/health")[0] == 200, "GET /health is 200 public")
 ok(h("GET", "/runs/fight")[0] == 200, "GET /runs/fight is 200 public")
 ok(h("GET", "/replay/fight/1")[0] == 200, "GET /replay/fight/1 is 200 public")
 ok(h("GET", "/replay/fight/1/status")[0] == 200, "GET /replay/fight/1/status is 200 public")
+ok(h("GET", "/logs")[0] == 200 and len(h("GET", "/logs")[1]["logs"]) == 1, "GET /logs returns 200 with logs and server status")
+ok(h("POST", "/logs/test", dict(message="ping"))[0] == 200, "POST /logs/test emits diagnostic ping")
 
 # Admin token enforcement
 ok(h("POST", "/practice", dict(ai="A", interval=3), None)[0] == 401, "POST /practice without token -> 401")
 ok(h("POST", "/practice", dict(ai="A", interval=3), "WRONG")[0] == 401, "POST /practice with wrong token -> 401")
 ok(h("GET", "/admin/jobs", None, None)[0] == 401, "GET /admin/jobs without token -> 401")
+ok(h("GET", "/admin/logs", None, "SECRET")[0] == 200, "GET /admin/logs with valid token returns 200")
+ok(h("POST", "/admin/logs/clear", None, "SECRET")[0] == 200, "POST /admin/logs/clear resets buffer")
+
 ok(h("GET", "/admin/events", None, None)[0] == 401, "GET /admin/events without token -> 401")
 ok(h("GET", "/admin/db/catalog", None, None)[0] == 401, "GET /admin/db/catalog without token -> 401")
 
