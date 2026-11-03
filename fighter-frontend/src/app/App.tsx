@@ -168,6 +168,7 @@ export default function App() {
               selected={simulation.selectedRun}
               busy={simulation.busy}
               onSelect={simulation.selectRun}
+              onCompile={simulation.compileReplay}
               onRefresh={() => {
                 void simulation.refreshRuns();
                 if (simulation.adminToken.trim()) {

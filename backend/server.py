@@ -65,51 +65,116 @@ def _check_api(preset):
     return dict(ok=True, text=res["text"], model=p["model"], elapsed_ms=res.get("elapsed_ms"))
 
 
-def _compute_replay(kind, n, setup, orders, frames):
+COMPILE_JOBS = {}
+
+
+def _compile_replay(kind, n):
     key = (kind, n)
     with LOCK:
-        if key in CACHE and CACHE[key].get("status") == "ready":
-            return CACHE[key]
-        CACHE[key] = dict(status="computing")
-    try:
-        out = replay_mod.replay(setup, orders, frames)
-        out.pop("final_p", None); out.pop("events", None)
-        with LOCK:
-            CACHE[key] = dict(status="ready", result=out["result"], init=out["init"], frames=out["frames"])
-        return CACHE[key]
-    except Exception as e:
-        with LOCK:
-            CACHE[key] = dict(status="error", error=repr(e))
-        return CACHE[key]
+        if key in COMPILE_JOBS:
+            return dict(ok=True, status=COMPILE_JOBS[key]["status"], progress=COMPILE_JOBS[key])
+
+    conn = _conn()
+    st = db.get_replay_status(conn, kind, n)
+    if st and st.get("status") == "ready":
+        return dict(ok=True, status="ready", progress=st.get("progress", {}))
+
+    run = db.load_run(conn, kind, n)
+    if not run:
+        return None
+
+    t0 = time.time()
+    prog = dict(
+        stage="queued",
+        frames_generated=0,
+        expected_frames=run["frames"],
+        percent=0.0,
+        started_at=t0,
+        elapsed_ms=0,
+        error=None,
+    )
+    with LOCK:
+        COMPILE_JOBS[key] = dict(status="queued", **prog)
+    db.save_replay_status(conn, kind, n, "queued", progress=prog)
+    server_logs.emit("INFO", "CACHE", f"Queued background replay compilation for {kind} #{n}")
+
+    def work():
+        try:
+            with LOCK:
+                if key in COMPILE_JOBS:
+                    COMPILE_JOBS[key].update(status="compiling", stage="compiling")
+            db.save_replay_status(_conn(), kind, n, "compiling", progress=dict(stage="compiling", frames_generated=0, expected_frames=run["frames"], percent=0.0, started_at=t0, elapsed_ms=int((time.time()-t0)*1000)))
+            server_logs.emit("INFO", "SIMULATION", f"Started 30 FPS replay compilation for {kind} #{n}")
+
+            def on_progress(cur, total):
+                el = int((time.time() - t0) * 1000)
+                pct = round((cur / max(1, total)) * 100, 1)
+                p = dict(stage="compiling", frames_generated=cur, expected_frames=total, percent=pct, started_at=t0, elapsed_ms=el)
+                with LOCK:
+                    if key in COMPILE_JOBS:
+                        COMPILE_JOBS[key].update(p)
+                db.save_replay_status(_conn(), kind, n, "compiling", progress=p)
+
+            out = replay_mod.replay(run["setup"], run["orders"], run["frames"], on_progress=on_progress)
+
+            el = int((time.time() - t0) * 1000)
+            p_val = dict(stage="validating", frames_generated=len(out.get("frames", [])), expected_frames=run["frames"], percent=100.0, started_at=t0, elapsed_ms=el)
+            with LOCK:
+                if key in COMPILE_JOBS:
+                    COMPILE_JOBS[key].update(status="validating", **p_val)
+            db.save_replay_status(_conn(), kind, n, "validating", progress=p_val)
+
+            if not out.get("frames") or len(out["frames"]) == 0:
+                raise ValueError("Replay generated 0 frames")
+            if "init" not in out or "shapes" not in out["init"]:
+                raise ValueError("Replay initialization metadata invalid")
+
+            saved_data = dict(result=out.get("result"), init=out.get("init"), frames=out.get("frames"))
+            p_ready = dict(stage="ready", frames_generated=len(out["frames"]), expected_frames=run["frames"], percent=100.0, started_at=t0, elapsed_ms=el)
+
+            with LOCK:
+                CACHE[key] = dict(status="ready", result=out["result"], init=out["init"], frames=out["frames"])
+                COMPILE_JOBS.pop(key, None)
+
+            db.save_replay_status(_conn(), kind, n, "ready", progress=p_ready, data=saved_data)
+            server_logs.emit("INFO", "CACHE", f"Replay compilation completed for {kind} #{n} ({len(out['frames'])} frames, {el}ms)")
+
+        except Exception as e:
+            el = int((time.time() - t0) * 1000)
+            err_msg = repr(e)
+            p_fail = dict(stage="failed", error=err_msg, started_at=t0, elapsed_ms=el)
+            with LOCK:
+                COMPILE_JOBS.pop(key, None)
+            db.save_replay_status(_conn(), kind, n, "failed", progress=p_fail)
+            server_logs.emit("ERROR", "SIMULATION", f"Replay compilation failed for {kind} #{n}: {err_msg}")
+
+    threading.Thread(target=work, daemon=True).start()
+    return dict(ok=True, status="queued", progress=prog)
 
 
 def _replay(kind, n):
     key = (kind, n)
     with LOCK:
-        if key in CACHE:
+        if key in CACHE and CACHE[key].get("status") == "ready":
             return CACHE[key]
-    run = db.load_run(_conn(), kind, n)
-    if not run:
-        return None
-    with LOCK:
-        CACHE[key] = dict(status="computing")
-    def work():
-        _compute_replay(kind, n, run["setup"], run["orders"], run["frames"])
-    threading.Thread(target=work, daemon=True).start()
-    return CACHE[key]
+    return db.get_compiled_replay(_conn(), kind, n)
 
 
 def _replay_status(kind, n):
     key = (kind, n)
     with LOCK:
-        if key in CACHE:
-            return dict(status=CACHE[key].get("status", "computing"), run=n, error=CACHE[key].get("error"))
-    run = db.load_run(_conn(), kind, n)
-    if not run:
+        if key in COMPILE_JOBS:
+            j = COMPILE_JOBS[key]
+            return dict(status=j.get("status", "compiling"), run=n, progress=j, error=j.get("error"))
+    conn = _conn()
+    st = db.get_replay_status(conn, kind, n)
+    if not st:
         return None
-    # Trigger computation in background if not already cached
-    _replay(kind, n)
-    return dict(status="computing", run=n)
+    if st["status"] in ("queued", "compiling", "validating"):
+        err_p = dict(stage="failed", error="Compilation interrupted by server restart. Please retry.")
+        db.save_replay_status(conn, kind, n, "failed", progress=err_p)
+        return dict(status="failed", run=n, progress=err_p, error=err_p["error"])
+    return dict(status=st["status"], run=n, progress=st.get("progress", {}), error=st.get("progress", {}).get("error"))
 
 
 def _run_practice(jid, p):
@@ -155,25 +220,16 @@ def _run_practice(jid, p):
 
     db.save_library(conn, p["ai"], r["library"])
     n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
-
-    # Replay generation stage
-    server_logs.set_activity(f"Preparing Replay: Practice #{n}", f"Computing 3D skeletal frames for #{n}", job_id=jid)
-    server_logs.emit("INFO", "CACHE", f"Job {jid} computing 3D skeletal replay for practice #{n}")
-    with LOCK:
-        JOBS[jid].update(stage="preparing_replay", run=n, elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
-        db.save_or_update_job(conn, JOBS[jid])
-        db.save_event(conn, jid, "info", "preparing_replay", f"Preparing replay for practice #{n}", dict(run=n))
-
-    _compute_replay("practice", n, dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"])
+    db.save_replay_status(conn, "practice", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
 
     with LOCK:
         elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
-        JOBS[jid].update(status="done", stage="ready", run=n, usage=r["usage"], elapsed_ms=elapsed)
+        JOBS[jid].update(status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
         db.save_or_update_job(conn, JOBS[jid])
-        db.save_event(conn, jid, "info", "ready", f"Practice #{n} is ready for replay playback", dict(run=n, frames=r["frames"]))
+        db.save_event(conn, jid, "info", "completed", f"Practice #{n} simulation completed (replay not compiled)", dict(run=n, frames=r["frames"]))
 
-    server_logs.set_activity("Idle - Awaiting requests", f"Practice #{n} ready ({r['frames']} frames, {elapsed}ms)")
-    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Practice #{n} successfully in {elapsed}ms", run=n, frames=r["frames"])
+    server_logs.set_activity("Idle - Awaiting requests", f"Practice #{n} completed ({r['frames']} frames, replay not compiled)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Practice #{n} simulation in {elapsed}ms", run=n, frames=r["frames"])
 
 
 def _run_fight(jid, p):
@@ -220,6 +276,7 @@ def _run_fight(jid, p):
         db.save_event(conn, jid, "info", "saving", f"Saving fight result ({r['result'] or 'draw'}) to database", dict(frames=r["frames"]))
 
     n = db.save_run(conn, "fight", r["setup"], r["orders"], r["frames"], r["result"], dict(p, usage=r["usage"]))
+    db.save_replay_status(conn, "fight", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
 
     # Memory reflections
     server_logs.set_activity(f"Formulating AI Memories for Fight #{n}", f"Generating tactical lessons", job_id=jid)
@@ -232,24 +289,14 @@ def _run_fight(jid, p):
             db.save_event(conn, jid, "info", "memory", f"Fighter {a} stored post-fight memory note for round #{n}")
             server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {a} saved post-fight memory note", note_preview=ans["text"][:100])
 
-    # Replay preparation stage
-    server_logs.set_activity(f"Preparing Replay: Fight #{n}", f"Computing 3D skeletal frames for #{n}", job_id=jid)
-    server_logs.emit("INFO", "CACHE", f"Job {jid} computing 3D skeletal replay for fight #{n}")
-    with LOCK:
-        JOBS[jid].update(stage="preparing_replay", run=n, result=r["result"], elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
-        db.save_or_update_job(conn, JOBS[jid])
-        db.save_event(conn, jid, "info", "preparing_replay", f"Preparing replay for fight #{n}", dict(run=n))
-
-    _compute_replay("fight", n, r["setup"], r["orders"], r["frames"])
-
     with LOCK:
         elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
-        JOBS[jid].update(status="done", stage="ready", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed)
+        JOBS[jid].update(status="done", stage="completed", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
         db.save_or_update_job(conn, JOBS[jid])
-        db.save_event(conn, jid, "info", "ready", f"Fight #{n} is ready for replay playback", dict(run=n, result=r["result"], frames=r["frames"]))
+        db.save_event(conn, jid, "info", "completed", f"Fight #{n} simulation completed (replay not compiled)", dict(run=n, result=r["result"], frames=r["frames"]))
 
-    server_logs.set_activity("Idle - Awaiting requests", f"Fight #{n} ready (Winner: {r['result'] or 'draw'}, {elapsed}ms)")
-    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Fight #{n} successfully. Winner: {r['result'] or 'draw'} ({elapsed}ms)", run=n, result=r["result"])
+    server_logs.set_activity("Idle - Awaiting requests", f"Fight #{n} completed (Winner: {r['result'] or 'draw'}, {elapsed}ms)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Fight #{n} simulation. Winner: {r['result'] or 'draw'} ({elapsed}ms)", run=n, result=r["result"])
 
 
 def run_practice(p):
@@ -367,6 +414,7 @@ def _ctx():
         memory=_memory,
         replay=_replay,
         replay_status=_replay_status,
+        compile_replay=_compile_replay,
         list_jobs=_list_jobs,
         list_events=_list_events,
         db_catalog=lambda: db.get_catalog(_conn()),

@@ -22,10 +22,10 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 function describeJob(job: SimulationJob): string {
-  if (job.state === 'done') return 'Simulation complete. Preparing replay…';
+  if (job.state === 'done') return 'Simulation completed. Ready for replay compilation.';
   if (job.state === 'error') return job.errorMessage || 'The simulation failed.';
   if (job.stage === 'saving') return 'Saving simulation results to database…';
-  if (job.stage === 'preparing_replay') return 'Generating deterministic 3D replay frames…';
+  if (job.stage === 'preparing_replay') return 'Saving simulation command history…';
   if (job.stage === 'decision' && job.decision) {
     return `AI reasoning decision ${job.decision}/${job.targetDecisions || '?'}…`;
   }
@@ -101,29 +101,52 @@ export function useSimulation() {
   const loadReplay = useCallback(async (kind: SimulationKind, runNumber: number) => {
     setError(null);
     setActivity('loading-replay');
-    setActivityMessage(`Preparing ${kind} replay #${runNumber}…`);
+    setActivityMessage(`Loading ${kind} replay #${runNumber}…`);
     setReplay(null);
     setSelectedRun({ kind, number: runNumber });
 
     try {
-      for (let attempt = 0; attempt < MAX_REPLAY_POLLS; attempt += 1) {
-        const response = await api.getReplay(kind, runNumber);
-        if (response.status === 'ready') {
-          setReplay(response.scene);
-          setLoadedAt(new Date().toLocaleTimeString());
-          setActivity('idle');
-          setActivityMessage(`${kind === 'fight' ? 'Fight' : 'Practice'} #${runNumber} loaded`);
-          return;
-        }
-        await delay(WAIT_BETWEEN_POLLS_MS);
+      const response = await api.getReplay(kind, runNumber);
+      if (response.status === 'ready') {
+        setReplay(response.scene);
+        setLoadedAt(new Date().toLocaleTimeString());
+        setActivity('idle');
+        setActivityMessage(`${kind === 'fight' ? 'Fight' : 'Practice'} #${runNumber} loaded`);
+        return;
       }
-      throw new Error('The backend is still preparing this replay. Try loading it again shortly.');
+      throw new Error('Replay has not been compiled yet. Click "Compile Replay (30 FPS)" to generate frames.');
     } catch (cause) {
       setActivity('idle');
       setError(cause instanceof Error ? cause.message : 'Could not load the replay.');
       throw cause;
     }
   }, []);
+
+  const compileReplay = useCallback(
+    async (kind: SimulationKind, runNumber: number) => {
+      setError(null);
+      try {
+        await api.compileReplay(kind, runNumber, adminToken);
+        await refreshRuns();
+
+        for (let attempt = 0; attempt < MAX_REPLAY_POLLS; attempt += 1) {
+          await delay(WAIT_BETWEEN_POLLS_MS);
+          const st = await api.getReplayStatus(kind, runNumber);
+          await refreshRuns();
+          if (st.status === 'ready') {
+            return;
+          }
+          if (st.status === 'failed') {
+            throw new Error(st.error || 'Replay compilation failed.');
+          }
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Compilation request failed.');
+        await refreshRuns();
+      }
+    },
+    [adminToken, refreshRuns],
+  );
 
   const waitForJob = useCallback(
     async (jobId: string): Promise<SimulationJob> => {
@@ -171,7 +194,6 @@ export function useSimulation() {
         setActivity('running');
         setActivityMessage('Simulation is running on the backend…');
 
-        // Add initial running job state
         const initialJob: SimulationJob = {
           id: jobId,
           kind,
@@ -188,15 +210,14 @@ export function useSimulation() {
 
         await refreshRuns();
         if (token.trim()) await refreshMonitoring();
-        await loadReplay(kind, job.runNumber);
+        setActivityMessage(`Simulation #${job.runNumber} completed. Click "Compile Replay" to generate 30 FPS playback.`);
+        setActivity('idle');
       } catch (cause) {
         setActivity('idle');
         setError(cause instanceof Error ? cause.message : 'The simulation could not be started.');
-      } finally {
-        setActivity((current) => (current === 'loading-replay' ? current : 'idle'));
       }
     },
-    [loadReplay, refreshRuns, refreshMonitoring, waitForJob],
+    [refreshRuns, refreshMonitoring, waitForJob],
   );
 
   const startPractice = useCallback(
@@ -240,6 +261,7 @@ export function useSimulation() {
     loadedAt,
     checkBackend,
     selectRun,
+    compileReplay,
     startPractice,
     startFight,
     refreshRuns,

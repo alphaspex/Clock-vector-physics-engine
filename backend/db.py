@@ -35,6 +35,7 @@ def init(conn):
     _x(conn, "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT, status TEXT, stage TEXT, created TEXT, started REAL, elapsed_ms INTEGER, run_n INTEGER, result TEXT, params TEXT, usage TEXT, error TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS job_events (id {pk}, job_id TEXT, created TEXT, severity TEXT, stage TEXT, message TEXT, metadata TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, val TEXT)")
+    _x(conn, "CREATE TABLE IF NOT EXISTS replays (kind TEXT, n INTEGER, status TEXT, progress TEXT, data TEXT, PRIMARY KEY (kind, n))")
     conn.commit()
 
 
@@ -80,9 +81,61 @@ def load_run(conn, kind, n):
     return dict(kind=kind, n=r[0], created=r[1], setup=json.loads(r[2]), orders=json.loads(r[3]), frames=r[4], result=r[5] or None, info=json.loads(r[6]))
 
 
+def save_replay_status(conn, kind, n, status, progress=None, data=None):
+    prog_str = json.dumps(progress) if progress is not None else None
+    data_str = json.dumps(data) if data is not None else None
+
+    existing = _x(conn, "SELECT 1 FROM replays WHERE kind=%s AND n=%s", (kind, int(n))).fetchone()
+    if existing:
+        if data_str is not None:
+            _x(conn, "UPDATE replays SET status=%s, progress=COALESCE(%s, progress), data=%s WHERE kind=%s AND n=%s",
+               (status, prog_str, data_str, kind, int(n)))
+        else:
+            _x(conn, "UPDATE replays SET status=%s, progress=COALESCE(%s, progress) WHERE kind=%s AND n=%s",
+               (status, prog_str, kind, int(n)))
+    else:
+        _x(conn, "INSERT INTO replays (kind, n, status, progress, data) VALUES (%s,%s,%s,%s,%s)",
+           (kind, int(n), status, prog_str or "{}", data_str))
+    conn.commit()
+
+
+def get_replay_status(conn, kind, n):
+    r = _x(conn, "SELECT status, progress FROM replays WHERE kind=%s AND n=%s", (kind, int(n))).fetchone()
+    if not r:
+        run_exists = _x(conn, "SELECT 1 FROM runs WHERE kind=%s AND n=%s", (kind, int(n))).fetchone()
+        if run_exists:
+            return dict(status="not_compiled", progress={})
+        return None
+    status, prog_raw = r[0], r[1]
+    progress = json.loads(prog_raw) if prog_raw else {}
+    return dict(status=status, progress=progress)
+
+
+def get_compiled_replay(conn, kind, n):
+    r = _x(conn, "SELECT status, progress, data FROM replays WHERE kind=%s AND n=%s", (kind, int(n))).fetchone()
+    if not r:
+        run_exists = _x(conn, "SELECT 1 FROM runs WHERE kind=%s AND n=%s", (kind, int(n))).fetchone()
+        if run_exists:
+            return dict(status="not_compiled", error="Replay has not been compiled yet")
+        return None
+    status, prog_raw, data_raw = r[0], r[1], r[2]
+    progress = json.loads(prog_raw) if prog_raw else {}
+    if status == "ready" and data_raw:
+        data = json.loads(data_raw)
+        return dict(status="ready", result=data.get("result"), init=data.get("init"), frames=data.get("frames"))
+    return dict(status=status, progress=progress, error=progress.get("error") if status == "failed" else None)
+
+
 def list_runs(conn, kind):
     rows = _x(conn, "SELECT n, created, result, frames, info FROM runs WHERE kind=%s ORDER BY n", (kind,)).fetchall()
-    return [dict(n=r[0], created=r[1], result=r[2] or None, frames=r[3], info=json.loads(r[4])) for r in rows]
+    res = []
+    for r in rows:
+        st = get_replay_status(conn, kind, r[0])
+        replay_status = st["status"] if st else "not_compiled"
+        replay_progress = st.get("progress") if st else {}
+        res.append(dict(n=r[0], created=r[1], result=r[2] or None, frames=r[3], info=json.loads(r[4]),
+                        replay_status=replay_status, replay_progress=replay_progress))
+    return res
 
 
 # ---- Jobs & Events audit persistence ----
@@ -369,11 +422,13 @@ def delete_resource_item(conn, resource, item_id, active_jobs=()):
         return dict(ok=True, deleted=cur.rowcount)
 
     if resource == "runs_fight":
+        _x(conn, "DELETE FROM replays WHERE kind='fight' AND n=%s", (int(item_id),))
         cur = _x(conn, "DELETE FROM runs WHERE kind='fight' AND n=%s", (int(item_id),))
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)
 
     if resource == "runs_practice":
+        _x(conn, "DELETE FROM replays WHERE kind='practice' AND n=%s", (int(item_id),))
         cur = _x(conn, "DELETE FROM runs WHERE kind='practice' AND n=%s", (int(item_id),))
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)

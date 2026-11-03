@@ -3,7 +3,7 @@ replay(setup, orders, frames)   IN: setup dict(nf,gap,offset_x), orders[], numbe
 import sim, frames as fr
 
 
-def replay(setup, orders, frames):
+def replay(setup, orders, frames, on_progress=None):
     spec, st, rn = sim.new_match(setup["nf"], setup["gap"], setup["offset_x"])
     out, events, i = [fr.snapshot(spec, st)], [], 0
     orders = sorted(orders, key=lambda o: o["frame"])
@@ -12,4 +12,6 @@ def replay(setup, orders, frames):
             rn = sim.give_orders(rn, orders[i]["f"], orders[i]["steps"]); i += 1
         st, rn, rec = sim.tick(spec, st, rn); events += rec
         out.append(fr.snapshot(spec, st))
+        if on_progress and (st.frame % 10 == 0 or st.frame >= frames):
+            on_progress(st.frame, frames)
     return dict(init=fr.describe(spec), frames=out, result=st.result, events=events, final_p=st.p.copy())

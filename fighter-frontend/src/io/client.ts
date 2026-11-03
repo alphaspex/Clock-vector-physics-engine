@@ -159,12 +159,23 @@ export const api = {
   /** Return either a preparation state or a fully normalized scene. */
   getReplay: async (kind: SimulationKind, runNumber: number): Promise<ReplayLoadResult> => {
     const response = await request<ReplayWireResponse>(`/replay/${kind}/${encodeURIComponent(String(runNumber))}`);
-    if (response.status === 'computing') return { status: 'computing' };
+    if (response.status !== 'ready') return { status: 'computing' };
     return { status: 'ready', scene: mapReplayResponse(response) };
   },
 
+  compileReplay: async (
+    kind: SimulationKind,
+    runNumber: number,
+    adminToken?: string,
+  ): Promise<ReplayCompileWireResponse> => {
+    return request<ReplayCompileWireResponse>(
+      `/replay/${kind}/${encodeURIComponent(String(runNumber))}/compile`,
+      { method: 'POST', adminToken },
+    );
+  },
+
   /** Fast status check for replay readiness without loading full frame payload. */
-  getReplayStatus: async (kind: SimulationKind, runNumber: number): Promise<{ status: string; run: number }> => {
+  getReplayStatus: async (kind: SimulationKind, runNumber: number): Promise<ReplayStatusWireResponse> => {
     return request<ReplayStatusWireResponse>(`/replay/${kind}/${encodeURIComponent(String(runNumber))}/status`);
   },
 

@@ -72,7 +72,9 @@ def handle(method, path, body, token, ctx):
             return 200, ctx["memory"](parts[1])
         if len(parts) == 3 and parts[0] == "replay" and parts[1] in ("practice", "fight") and parts[2].isdigit():
             r = ctx["replay"](parts[1], int(parts[2]))
-            return (200, r) if r else (404, dict(error="no such round"))
+            if not r: return 404, dict(error="no such round")
+            if r.get("status") != "ready": return 400, r
+            return 200, r
         if len(parts) == 4 and parts[0] == "replay" and parts[1] in ("practice", "fight") and parts[2].isdigit() and parts[3] == "status":
             st = ctx["replay_status"](parts[1], int(parts[2]))
             return (200, st) if st else (404, dict(error="no such round"))
@@ -86,6 +88,14 @@ def handle(method, path, body, token, ctx):
             status = ctx["server_status"]()
             return 200, dict(logs=logs, status=status, max_id=max_id)
 
+    # --- Compile Replay Action ---
+    if method == "POST" and len(parts) == 4 and parts[0] == "replay" and parts[1] in ("practice", "fight") and parts[2].isdigit() and parts[3] == "compile":
+        if ctx.get("admin_token") and token != ctx["admin_token"]:
+            return 401, dict(error="bad or missing X-Token")
+        res = ctx["compile_replay"](parts[1], int(parts[2]))
+        if not res:
+            return 404, dict(error="no such round")
+        return 202, res
 
     # --- Admin Authentication Barrier for all remaining routes ---
     is_admin_req = parts and parts[0] == "admin"

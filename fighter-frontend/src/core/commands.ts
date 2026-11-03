@@ -31,12 +31,26 @@ export interface FightCommand {
   durationMinutes: number;
 }
 
+export type ReplayStatus = 'not_compiled' | 'queued' | 'compiling' | 'validating' | 'ready' | 'failed';
+
+export interface ReplayProgress {
+  stage?: string;
+  framesGenerated?: number;
+  expectedFrames?: number;
+  percent?: number;
+  elapsedMs?: number;
+  startedAt?: number;
+  error?: string;
+}
+
 /** Stable app-facing run item; server fields are mapped before UI receives it. */
 export interface SavedRun {
   number: number;
   createdAt: string;
   result: string | null;
   frameCount: number;
+  replayStatus: ReplayStatus;
+  replayProgress?: ReplayProgress;
 }
 
 /** Normalized job state; the UI/controller do not read backend job JSON keys. */

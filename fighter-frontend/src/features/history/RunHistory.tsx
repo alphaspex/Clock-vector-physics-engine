@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Clock3, FileClock, RefreshCw, Swords, Target } from 'lucide-react';
+import { AlertCircle, Clock3, FileClock, Play, RefreshCw, Film, Swords, Target, Cpu } from 'lucide-react';
 import type { SavedRun, SimulationJob, SimulationKind } from '../../core/commands';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   selected: { kind: SimulationKind; number: number } | null;
   busy: boolean;
   onSelect: (kind: SimulationKind, runNumber: number) => void;
+  onCompile: (kind: SimulationKind, runNumber: number) => void;
   onRefresh: () => void;
 }
 
@@ -25,100 +26,16 @@ export default function RunHistory({
   selected,
   busy,
   onSelect,
+  onCompile,
   onRefresh,
 }: Props) {
   const [kind, setKind] = useState<SimulationKind>('fight');
 
   const runs = useMemo(() => (kind === 'fight' ? fightRuns : practiceRuns), [kind, fightRuns, practiceRuns]);
 
-  // Find active or recent jobs for this simulation kind
   const relevantJobs = useMemo(() => {
-    return activeJobs.filter((j) => j.kind === kind);
+    return activeJobs.filter((j) => j.kind === kind && j.state === 'running');
   }, [activeJobs, kind]);
-
-  // Combine jobs and runs into unified list
-  const unifiedItems = useMemo(() => {
-    const items: Array<{
-      key: string;
-      idLabel: string;
-      runNumber?: number;
-      kind: SimulationKind;
-      status: 'running' | 'saving' | 'preparing_replay' | 'ready' | 'failed';
-      badgeText: string;
-      created: string;
-      metaText: string;
-      isClickable: boolean;
-      errorMessage?: string;
-    }> = [];
-
-    // Active or in-progress jobs first
-    for (const job of relevantJobs) {
-
-      if (job.state === 'running' || job.stage === 'saving' || job.stage === 'preparing_replay') {
-        let badgeText = 'RUNNING';
-        let status: 'running' | 'saving' | 'preparing_replay' = 'running';
-
-        if (job.stage === 'saving') {
-          badgeText = 'SAVING';
-          status = 'saving';
-        } else if (job.stage === 'preparing_replay') {
-          badgeText = 'PREPARING REPLAY';
-          status = 'preparing_replay';
-        } else if (job.stage === 'decision' && job.decision) {
-          badgeText = `DECISION ${job.decision}/${job.targetDecisions || '?'}`;
-        } else if (job.percent !== undefined) {
-          badgeText = `RUNNING ${job.percent}%`;
-        }
-
-        const idLabel = job.runNumber ? `#${job.runNumber}` : `Job ${job.id}`;
-        items.push({
-          key: `job-${job.id}`,
-          idLabel,
-          runNumber: job.runNumber,
-          kind,
-          status,
-          badgeText,
-          created: formatCreated(job.createdAt),
-          metaText: job.runNumber ? `Assigning run #${job.runNumber}` : `Simulation active (${job.elapsedMs ? `${Math.round(job.elapsedMs / 1000)}s` : 'starting'})`,
-          isClickable: false,
-        });
-      } else if (job.state === 'error') {
-        items.push({
-          key: `job-${job.id}`,
-          idLabel: job.runNumber ? `#${job.runNumber}` : `Job ${job.id}`,
-          runNumber: job.runNumber,
-          kind,
-          status: 'failed',
-          badgeText: 'FAILED',
-          created: formatCreated(job.createdAt),
-          metaText: job.errorMessage || 'Simulation failed',
-          isClickable: false,
-          errorMessage: job.errorMessage,
-        });
-      }
-    }
-
-    // Then saved ready runs
-    for (const run of runs) {
-      const resultLabel = kind === 'fight'
-        ? (run.result ? `Winner: ${run.result}` : 'Draw')
-        : `${run.frameCount} frames`;
-
-      items.push({
-        key: `run-${kind}-${run.number}`,
-        idLabel: `#${run.number}`,
-        runNumber: run.number,
-        kind,
-        status: 'ready',
-        badgeText: 'READY',
-        created: formatCreated(run.createdAt),
-        metaText: resultLabel,
-        isClickable: true,
-      });
-    }
-
-    return items;
-  }, [relevantJobs, runs, kind]);
 
   return (
     <section className="panel history-panel" aria-label="Simulation history">
@@ -163,7 +80,7 @@ export default function RunHistory({
         </button>
       </div>
 
-      {unifiedItems.length === 0 ? (
+      {relevantJobs.length === 0 && runs.length === 0 ? (
         <div className="empty-history">
           <FileClock size={22} strokeWidth={1.4} />
           <strong>No {kind} sessions yet</strong>
@@ -171,42 +88,135 @@ export default function RunHistory({
         </div>
       ) : (
         <div className="history-list">
-          {unifiedItems.map((item) => {
-            const isSelected = item.runNumber && selected?.kind === kind && selected.number === item.runNumber;
-            const isReady = item.status === 'ready';
-            const isFailed = item.status === 'failed';
+          {/* Active running simulation jobs */}
+          {relevantJobs.map((job) => {
+            let badgeText = 'RUNNING';
+            if (job.stage === 'saving') badgeText = 'SAVING';
+            else if (job.stage === 'decision' && job.decision) badgeText = `DECISION ${job.decision}/${job.targetDecisions || '?'}`;
+            else if (job.percent !== undefined) badgeText = `RUNNING ${job.percent}%`;
 
+            const idLabel = job.runNumber ? `#${job.runNumber}` : `Job ${job.id}`;
             return (
-              <button
-                type="button"
-                key={item.key}
-                className={`history-item ${isSelected ? 'is-selected' : ''} ${!isReady ? 'history-item--pending' : ''}`}
-                onClick={() => {
-                  if (item.isClickable && item.runNumber) {
-                    onSelect(kind, item.runNumber);
-                  }
-                }}
-                disabled={!item.isClickable || busy}
-                title={item.errorMessage || (isReady ? `Click to load replay #${item.runNumber}` : item.badgeText)}
-              >
-                <span className="history-item__number">{item.idLabel}</span>
+              <div key={`job-${job.id}`} className="history-item history-item--pending">
+                <span className="history-item__number">{idLabel}</span>
                 <span className="history-item__copy">
                   <span className="history-item__title">
-                    <strong>{kind === 'fight' ? 'Fight' : 'Practice'} {item.idLabel}</strong>
-                    {isFailed && <AlertCircle size={11} className="error-icon" />}
+                    <strong>{kind === 'fight' ? 'Fight' : 'Practice'} {idLabel}</strong>
                   </span>
                   <small>
-                    <Clock3 size={11} /> {item.created} · {item.metaText}
+                    <Clock3 size={11} /> {formatCreated(job.createdAt)} · Simulation in progress
                   </small>
                 </span>
-                <span
-                  className={`status-badge ${
-                    isReady ? 'status-badge--ready' : isFailed ? 'status-badge--failed' : 'status-badge--active'
-                  }`}
-                >
-                  {item.badgeText}
-                </span>
-              </button>
+                <span className="status-badge status-badge--active">{badgeText}</span>
+              </div>
+            );
+          })}
+
+          {/* Saved runs */}
+          {runs.map((run) => {
+            const isSelected = selected?.kind === kind && selected.number === run.number;
+            const status = run.replayStatus || 'not_compiled';
+            const prog = run.replayProgress;
+
+            const isReady = status === 'ready';
+            const isCompiling = status === 'compiling' || status === 'queued' || status === 'validating';
+            const isFailed = status === 'failed';
+            const isUncompiled = status === 'not_compiled';
+
+            const resultLabel = kind === 'fight'
+              ? (run.result ? `Winner: ${run.result}` : 'Draw')
+              : `${run.frameCount} frames`;
+
+            return (
+              <div
+                key={`run-${kind}-${run.number}`}
+                className={`history-item ${isSelected ? 'is-selected' : ''} ${!isReady ? 'history-item--pending' : ''}`}
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.4rem' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <span className="history-item__number">#{run.number}</span>
+                  <div className="history-item__copy" style={{ flex: 1, marginLeft: '0.5rem' }}>
+                    <div className="history-item__title">
+                      <strong>{kind === 'fight' ? 'Fight' : 'Practice'} #{run.number}</strong>
+                      {isFailed && <AlertCircle size={12} className="error-icon" style={{ color: 'var(--color-error, #f87171)', marginLeft: '0.3rem' }} />}
+                    </div>
+                    <small>
+                      <Clock3 size={11} /> {formatCreated(run.createdAt)} · {resultLabel}
+                    </small>
+                  </div>
+
+                  <span
+                    className={`status-badge ${
+                      isReady ? 'status-badge--ready' : isFailed ? 'status-badge--failed' : isCompiling ? 'status-badge--active' : ''
+                    }`}
+                    style={isUncompiled ? { background: 'rgba(255,255,255,0.1)', color: 'var(--text-secondary, #9ca3af)' } : undefined}
+                  >
+                    {isReady && 'READY'}
+                    {isUncompiled && 'NOT COMPILED'}
+                    {isCompiling && (status === 'validating' ? 'VALIDATING' : `COMPILING ${prog?.percent ? `${Math.round(prog.percent)}%` : ''}`)}
+                    {isFailed && 'FAILED'}
+                  </span>
+                </div>
+
+                {/* Compilation Progress Bar */}
+                {isCompiling && (
+                  <div style={{ width: '100%', marginTop: '0.2rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', opacity: 0.8, marginBottom: '0.2rem' }}>
+                      <span>{status === 'validating' ? 'Validating snapshots…' : `Frames ${prog?.framesGenerated || 0} / ${run.frameCount}`}</span>
+                      <span>{prog?.percent ? `${Math.round(prog.percent)}%` : '0%'}</span>
+                    </div>
+                    <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${Math.min(100, Math.max(0, prog?.percent || 0))}%`,
+                          background: 'var(--color-primary, #3b82f6)',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Error message detail for failed compilation */}
+                {isFailed && prog?.error && (
+                  <div style={{ fontSize: '0.72rem', color: '#f87171', background: 'rgba(248,113,113,0.1)', padding: '0.3rem 0.5rem', borderRadius: '4px' }}>
+                    {prog.error}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem', justifyContent: 'flex-end' }}>
+                  {(isUncompiled || isFailed) && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCompile(kind, run.number);
+                      }}
+                      disabled={busy}
+                    >
+                      <Film size={12} style={{ marginRight: '0.3rem' }} />
+                      <span>{isFailed ? 'Retry Compile (30 FPS)' : 'Compile Replay (30 FPS)'}</span>
+                    </button>
+                  )}
+
+                  {isReady && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
+                      onClick={() => onSelect(kind, run.number)}
+                      disabled={busy}
+                    >
+                      <Play size={12} style={{ marginRight: '0.3rem' }} />
+                      <span>Watch Replay</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>

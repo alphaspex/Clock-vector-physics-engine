@@ -15,6 +15,8 @@ export interface RunSummaryWire {
   result: string | null;
   frames: number;
   info: Record<string, unknown>;
+  replay_status?: 'not_compiled' | 'queued' | 'compiling' | 'validating' | 'ready' | 'failed';
+  replay_progress?: Record<string, unknown>;
 }
 
 export interface RunsWireResponse {
@@ -142,8 +144,16 @@ export interface DbResetMemoryWireResponse {
 }
 
 export interface ReplayStatusWireResponse {
-  status: 'computing' | 'ready' | 'error';
+  status: 'not_compiled' | 'queued' | 'compiling' | 'validating' | 'ready' | 'failed';
   run: number;
+  progress?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface ReplayCompileWireResponse {
+  ok: boolean;
+  status: 'not_compiled' | 'queued' | 'compiling' | 'validating' | 'ready' | 'failed';
+  progress?: Record<string, unknown>;
   error?: string;
 }
 

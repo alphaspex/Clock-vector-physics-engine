@@ -21,11 +21,22 @@ function finiteNumber(value: unknown, fallback: number): number {
 }
 
 export function mapRunSummary(wire: RunSummaryWire): SavedRun {
+  const prog = wire.replay_progress || {};
   return {
     number: wire.n,
     createdAt: wire.created,
     result: wire.result ?? null,
     frameCount: wire.frames,
+    replayStatus: (wire.replay_status as any) || 'not_compiled',
+    replayProgress: {
+      stage: typeof prog.stage === 'string' ? prog.stage : undefined,
+      framesGenerated: typeof prog.frames_generated === 'number' ? prog.frames_generated : undefined,
+      expectedFrames: typeof prog.expected_frames === 'number' ? prog.expected_frames : undefined,
+      percent: typeof prog.percent === 'number' ? prog.percent : undefined,
+      elapsedMs: typeof prog.elapsed_ms === 'number' ? prog.elapsed_ms : undefined,
+      startedAt: typeof prog.started_at === 'number' ? prog.started_at : undefined,
+      error: typeof prog.error === 'string' ? prog.error : undefined,
+    },
   };
 }
 

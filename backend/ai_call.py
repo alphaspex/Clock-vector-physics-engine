@@ -85,13 +85,12 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                 # Meta official /responses API body format (uses max_output_tokens, NO max_tokens)
                 body = {
                     "model": preset["model"],
-                    "input": f"{system}\n\n{user}" if system else user,
+                    "input": user,
                     "instructions": system,
                     "max_output_tokens": max_tokens,
                 }
                 if preset["effort"] and effort:
                     body["reasoning"] = {"effort": effort}
-                    body["reasoning_effort"] = effort
             else:
                 # Standard OpenAI chat completions format
                 body = {
