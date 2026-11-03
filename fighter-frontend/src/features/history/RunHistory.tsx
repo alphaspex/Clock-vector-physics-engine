@@ -138,7 +138,7 @@ export default function RunHistory({
 
           <button
             type="button"
-            className="primary-button"
+            className="button button--primary"
             style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', height: '24px' }}
             onClick={handleCompileSelected}
             disabled={busy}
@@ -277,7 +277,7 @@ export default function RunHistory({
                   {(isUncompiled || isFailed) && (
                     <button
                       type="button"
-                      className="primary-button"
+                      className="button button--primary"
                       style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -293,8 +293,8 @@ export default function RunHistory({
                   {isReady && (
                     <button
                       type="button"
-                      className="secondary-button"
-                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: 'auto' }}
+                      className="button"
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', height: 'auto', background: '#f0f1eb' }}
                       onClick={() => onSelect(kind, run.number)}
                       disabled={busy}
                     >

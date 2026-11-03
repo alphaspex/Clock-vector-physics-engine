@@ -20,13 +20,14 @@ import PlaybackBar from '../features/playback/PlaybackBar';
 import ControlRoomPanel from '../features/monitoring/ControlRoomPanel';
 import DatabaseManager from '../features/database/DatabaseManager';
 import LiveLogsPanel from '../features/logs/LiveLogsPanel';
+import ReplayGeneratorPanel from '../features/history/ReplayGeneratorPanel';
 import { usePlayback } from '../features/playback/usePlayback';
 import ThreeSketchViewer from '../viewer/ThreeSketchViewer';
 import StatusDot from '../components/StatusDot';
 import { getConfiguredApiUrl } from '../io/client';
 import { useSimulation } from './useSimulation';
 
-type AppTab = 'tv' | 'control_room' | 'database' | 'live_logs';
+type AppTab = 'tv' | 'control_room' | 'compilation' | 'database' | 'live_logs';
 
 export default function App() {
   const simulation = useSimulation();
@@ -66,6 +67,10 @@ export default function App() {
         ? 'bad'
         : 'pending';
 
+  const uncompiledCount = useMemo(() => {
+    return [...simulation.practiceRuns, ...simulation.fightRuns].filter(r => !r.replayStatus || r.replayStatus === 'not_compiled').length;
+  }, [simulation.practiceRuns, simulation.fightRuns]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -90,6 +95,17 @@ export default function App() {
           >
             <Monitor size={14} />
             <span>3D TV Replay</span>
+          </button>
+          <button
+            type="button"
+            className={`topbar-nav__item ${activeTab === 'compilation' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('compilation')}
+          >
+            <Film size={14} />
+            <span>Replay Generation</span>
+            {uncompiledCount > 0 && (
+              <span className="tab-count" style={{ background: '#e04b38', color: '#fff', border: 'none' }}>{uncompiledCount}</span>
+            )}
           </button>
           <button
             type="button"
@@ -249,7 +265,7 @@ export default function App() {
                   {simulation.selectedRun && (
                     <button
                       type="button"
-                      className="primary-button"
+                      className="button button--primary"
                       style={{ marginTop: '0.8rem', padding: '0.4rem 0.9rem', fontSize: '0.82rem' }}
                       onClick={() => {
                         if (simulation.selectedRun) {
@@ -303,6 +319,22 @@ export default function App() {
               <span>CAMERA: ORBIT / PLAYBACK: {playback.playing ? 'RUNNING' : 'PAUSED'}</span>
             </footer>
           </section>
+        </div>
+      )}
+
+      {activeTab === 'compilation' && (
+        <div className="section-container">
+          <ReplayGeneratorPanel
+            practiceRuns={simulation.practiceRuns}
+            fightRuns={simulation.fightRuns}
+            busy={simulation.busy}
+            onSelect={(kind, num) => {
+              simulation.selectRun(kind, num);
+              setActiveTab('tv');
+            }}
+            onCompile={simulation.compileReplay}
+            onRefresh={() => void simulation.refreshRuns()}
+          />
         </div>
       )}
 
