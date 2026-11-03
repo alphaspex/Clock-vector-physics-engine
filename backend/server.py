@@ -82,10 +82,17 @@ class H(BaseHTTPRequestHandler):
         data = json.dumps(payload).encode()
         self.send_response(code)
         for k, v in (("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*"),
+                     ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
                      ("Access-Control-Allow-Headers", "Content-Type, X-Token"), ("Content-Length", str(len(data)))): self.send_header(k, v)
         self.end_headers(); self.wfile.write(data)
 
-    def do_OPTIONS(self): self._send(204, {})
+    def do_OPTIONS(self):
+        self.send_response(204)
+        for k, v in (("Access-Control-Allow-Origin", "*"),
+                     ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
+                     ("Access-Control-Allow-Headers", "Content-Type, X-Token"),
+                     ("Access-Control-Max-Age", "600")): self.send_header(k, v)
+        self.end_headers()
 
     def _go(self, method):
         try:
