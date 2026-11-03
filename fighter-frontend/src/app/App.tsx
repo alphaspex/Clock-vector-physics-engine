@@ -3,6 +3,7 @@ import {
   Activity,
   Database,
   Expand,
+  Film,
   Focus,
   Github,
   Monitor,
@@ -234,13 +235,33 @@ export default function App() {
                   <h3>
                     {simulation.activity === 'loading-replay'
                       ? 'Preparing the scene'
-                      : 'The stage is clear'}
+                      : simulation.selectedRun
+                        ? `${simulation.selectedRun.kind === 'fight' ? 'Fight' : 'Practice'} #${simulation.selectedRun.number} Selected`
+                        : 'The stage is clear'}
                   </h3>
                   <p>
                     {simulation.activity === 'loading-replay'
                       ? simulation.activityMessage
-                      : 'Select a saved replay or start a new simulation. The viewer draws only the geometry described by the server.'}
+                      : simulation.selectedRun
+                        ? 'This round has not been compiled into 30 FPS replay snapshots yet. Click below to start background compilation.'
+                        : 'Select a saved replay or start a new simulation. The viewer draws only the geometry described by the server.'}
                   </p>
+                  {simulation.selectedRun && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{ marginTop: '0.8rem', padding: '0.4rem 0.9rem', fontSize: '0.82rem' }}
+                      onClick={() => {
+                        if (simulation.selectedRun) {
+                          void simulation.compileReplay(simulation.selectedRun.kind, simulation.selectedRun.number);
+                        }
+                      }}
+                      disabled={simulation.busy}
+                    >
+                      <Film size={14} style={{ marginRight: '0.4rem' }} />
+                      <span>Compile Replay (30 FPS) for #{simulation.selectedRun.number}</span>
+                    </button>
+                  )}
                   {simulation.connection === 'offline' && (
                     <span className="placeholder-alert">
                       <WifiOff size={13} /> Backend connection unavailable

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Clock3, FileClock, Play, RefreshCw, Film, Swords, Target, Cpu } from 'lucide-react';
+import { AlertCircle, Clock3, FileClock, Play, RefreshCw, Film, Swords, Target, CheckSquare, Square } from 'lucide-react';
 import type { SavedRun, SimulationJob, SimulationKind } from '../../core/commands';
 
 interface Props {
@@ -30,12 +30,45 @@ export default function RunHistory({
   onRefresh,
 }: Props) {
   const [kind, setKind] = useState<SimulationKind>('fight');
+  const [checkedRuns, setCheckedRuns] = useState<Set<number>>(new Set());
 
   const runs = useMemo(() => (kind === 'fight' ? fightRuns : practiceRuns), [kind, fightRuns, practiceRuns]);
+
+  const uncompiledRuns = useMemo(() => {
+    return runs.filter((r) => !r.replayStatus || r.replayStatus === 'not_compiled' || r.replayStatus === 'failed');
+  }, [runs]);
 
   const relevantJobs = useMemo(() => {
     return activeJobs.filter((j) => j.kind === kind && j.state === 'running');
   }, [activeJobs, kind]);
+
+  const toggleCheck = (num: number) => {
+    setCheckedRuns((prev) => {
+      const next = new Set(prev);
+      if (next.has(num)) next.delete(num);
+      else next.add(num);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (checkedRuns.size === uncompiledRuns.length) {
+      setCheckedRuns(new Set());
+    } else {
+      setCheckedRuns(new Set(uncompiledRuns.map((r) => r.number)));
+    }
+  };
+
+  const handleCompileSelected = () => {
+    const targets = checkedRuns.size > 0
+      ? Array.from(checkedRuns)
+      : uncompiledRuns.map((r) => r.number);
+
+    for (const num of targets) {
+      onCompile(kind, num);
+    }
+    setCheckedRuns(new Set());
+  };
 
   return (
     <section className="panel history-panel" aria-label="Simulation history">
@@ -61,7 +94,10 @@ export default function RunHistory({
           role="tab"
           aria-selected={kind === 'fight'}
           className={kind === 'fight' ? 'is-active' : ''}
-          onClick={() => setKind('fight')}
+          onClick={() => {
+            setKind('fight');
+            setCheckedRuns(new Set());
+          }}
         >
           <Swords size={12} />
           <span>Fights</span>
@@ -72,13 +108,50 @@ export default function RunHistory({
           role="tab"
           aria-selected={kind === 'practice'}
           className={kind === 'practice' ? 'is-active' : ''}
-          onClick={() => setKind('practice')}
+          onClick={() => {
+            setKind('practice');
+            setCheckedRuns(new Set());
+          }}
         >
           <Target size={12} />
           <span>Practice</span>
           <span className="tab-count">{practiceRuns.length}</span>
         </button>
       </div>
+
+      {/* Batch compilation action bar */}
+      {uncompiledRuns.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 0.6rem', background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: '0.75rem' }}>
+          <button
+            type="button"
+            className="text-button"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', opacity: 0.8 }}
+            onClick={toggleSelectAll}
+          >
+            {checkedRuns.size === uncompiledRuns.length && uncompiledRuns.length > 0 ? (
+              <CheckSquare size={13} style={{ color: 'var(--color-primary, #3b82f6)' }} />
+            ) : (
+              <Square size={13} />
+            )}
+            <span>{checkedRuns.size > 0 ? `Selected (${checkedRuns.size})` : 'Select All'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="primary-button"
+            style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', height: '24px' }}
+            onClick={handleCompileSelected}
+            disabled={busy}
+          >
+            <Film size={12} style={{ marginRight: '0.3rem' }} />
+            <span>
+              {checkedRuns.size > 0
+                ? `Compile Selected (${checkedRuns.size})`
+                : `Compile All Uncompiled (${uncompiledRuns.length})`}
+            </span>
+          </button>
+        </div>
+      )}
 
       {relevantJobs.length === 0 && runs.length === 0 ? (
         <div className="empty-history">
@@ -122,6 +195,7 @@ export default function RunHistory({
             const isCompiling = status === 'compiling' || status === 'queued' || status === 'validating';
             const isFailed = status === 'failed';
             const isUncompiled = status === 'not_compiled';
+            const isChecked = checkedRuns.has(run.number);
 
             const resultLabel = kind === 'fight'
               ? (run.result ? `Winner: ${run.result}` : 'Draw')
@@ -134,6 +208,19 @@ export default function RunHistory({
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.4rem' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  {(isUncompiled || isFailed) && (
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', padding: '0 0.3rem 0 0', cursor: 'pointer', color: isChecked ? 'var(--color-primary, #3b82f6)' : 'inherit' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleCheck(run.number);
+                      }}
+                      title="Select for compilation"
+                    >
+                      {isChecked ? <CheckSquare size={14} /> : <Square size={14} style={{ opacity: 0.5 }} />}
+                    </button>
+                  )}
                   <span className="history-item__number">#{run.number}</span>
                   <div className="history-item__copy" style={{ flex: 1, marginLeft: '0.5rem' }}>
                     <div className="history-item__title">
