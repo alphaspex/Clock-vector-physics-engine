@@ -19,27 +19,40 @@ def _http_post(url, headers, body, timeout):
         return 0, {"error": {"message": str(e)}}, {}
 
 
-def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries=3, post=_http_post, sleep=time.sleep):
+def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries=3, post=_http_post, sleep=time.sleep, on_event=None):
+    t0 = time.time()
     body = {"model": preset["model"], "max_tokens": max_tokens,
             "messages": [{"role": preset["role"], "content": system}, {"role": "user", "content": user}]}
     if preset["effort"] and effort:
         body["reasoning_effort"] = effort
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     err = "unknown"
+    if on_event:
+        on_event("ai_start", dict(model=preset["model"], max_tokens=max_tokens))
     for attempt in range(retries + 1):
         status, data, hdr = post(preset["base"] + "/chat/completions", headers, body, timeout)
         if status == 200:
             try:
                 msg = data["choices"][0]["message"].get("content") or ""
                 u = data.get("usage", {})
-                return dict(text=msg, error=None, usage=dict(
+                elapsed_ms = int((time.time() - t0) * 1000)
+                res = dict(text=msg, error=None, elapsed_ms=elapsed_ms, usage=dict(
                     prompt=u.get("prompt_tokens", 0), completion=u.get("completion_tokens", 0),
                     reasoning=(u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)))
+                if on_event:
+                    on_event("ai_done", dict(model=preset["model"], elapsed_ms=elapsed_ms, usage=res["usage"]))
+                return res
             except (KeyError, IndexError, TypeError):
-                err = "unexpected response shape"; break
-        err = f"HTTP {status}: {(data.get('error') or {}).get('message', data) if isinstance(data, dict) else data}"
+                err = f"{preset['model']}: unexpected response shape"; break
+        err = f"{preset['model']} HTTP {status}: {(data.get('error') or {}).get('message', data) if isinstance(data, dict) else data}"
         if status in (0, 429) or status >= 500:
+            if on_event:
+                on_event("ai_retry", dict(model=preset["model"], attempt=attempt + 1, error=err))
             wait = float(hdr.get("Retry-After", 2 ** attempt)) if str(hdr.get("Retry-After", "")).replace(".", "").isdigit() else 2 ** attempt
             sleep(min(wait, 30)); continue
         break
-    return dict(text="", usage=dict(prompt=0, completion=0, reasoning=0), error=err)
+    elapsed_ms = int((time.time() - t0) * 1000)
+    if on_event:
+        on_event("ai_error", dict(model=preset["model"], elapsed_ms=elapsed_ms, error=err))
+    return dict(text="", usage=dict(prompt=0, completion=0, reasoning=0), elapsed_ms=elapsed_ms, error=err)
+

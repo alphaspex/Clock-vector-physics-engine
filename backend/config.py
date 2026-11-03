@@ -28,9 +28,16 @@ BOUNCE_MIN_SPEED = 0.5
 PROVIDERS = {
     "meta":         dict(base="https://api.meta.ai/v1", model="muse-spark-1.3", key_env="MODEL_API_KEY", effort=True, role="system"),
     "meta_contrib": dict(base="https://api.meta.ai/v1", model="muse-spark-1.3-contributor", key_env="MODEL_API_KEY", effort=True, role="system"),
-    "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open", key_env="BASETEN_API_KEY", effort=False, role="developer"),
+    "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open-1026", key_env="BASETEN_API_KEY", effort=False, role="developer"),
 }
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # "none" is rejected by Muse Spark (HTTP 400)
 PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "high", "minimal", "low"
 PRACTICE_MAX_TOKENS, FIGHT_MAX_TOKENS, NOTE_MAX_TOKENS = 6000, 1500, 800   # reasoning + visible text together
 NOTE_MAX_CHARS = 800      # about 200 tokens
+
+# ---- Round durations (minutes in UI, converted to seconds server-side) ----
+MIN_DURATION_MINUTES = 0.2     # 12 seconds minimum
+MAX_DURATION_MINUTES = 30.0    # 30 minutes maximum
+DEFAULT_PRACTICE_MINUTES = 3.0 # 180 seconds
+DEFAULT_FIGHT_MINUTES = 1.0    # 60 seconds
+

@@ -26,6 +26,7 @@ export interface StartPracticeWireInput {
   preset: 'meta' | 'meta_contrib' | 'baseten';
   interval: number;
   effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  duration_minutes?: number;
 }
 
 export interface StartFightWireInput {
@@ -34,6 +35,7 @@ export interface StartFightWireInput {
   interval: number;
   effortA: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   effortB: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  duration_minutes?: number;
 }
 
 export interface StartJobWireResponse {
@@ -44,13 +46,107 @@ export interface JobWireResponse {
   id: string;
   kind: 'practice' | 'fight';
   status: string;
+  stage?: string;
   params?: Record<string, unknown>;
   started?: number;
+  elapsed_ms?: number;
   run?: number;
   result?: string | null;
+  percent?: number;
+  decision?: number;
+  target_decisions?: number;
+  frame?: number;
+  max_frame?: number;
   usage?: Record<string, number>;
   error?: string;
 }
+
+export interface JobAuditWire {
+  id: string;
+  kind: 'practice' | 'fight';
+  status: string;
+  stage: string;
+  created: string;
+  started: number;
+  elapsed_ms: number;
+  run?: number;
+  result?: string | null;
+  params?: Record<string, unknown>;
+  usage?: Record<string, number>;
+  error?: string | null;
+}
+
+export interface JobsListWireResponse {
+  jobs: JobAuditWire[];
+}
+
+export interface JobEventWire {
+  id: number;
+  job_id: string;
+  created: string;
+  severity: 'info' | 'warn' | 'error';
+  stage: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EventsListWireResponse {
+  events: JobEventWire[];
+}
+
+export interface CatalogFieldWire {
+  key: string;
+  label: string;
+  type: string;
+  primary?: boolean;
+}
+
+export interface CatalogResourceWire {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  primary_key: string;
+  operations: string[];
+  reversible: boolean;
+  fields: CatalogFieldWire[];
+}
+
+export interface DbCatalogWireResponse {
+  catalog: CatalogResourceWire[];
+}
+
+export interface DbResourceListWireResponse {
+  items: Record<string, unknown>[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DbRecordWireResponse {
+  item: Record<string, unknown>;
+}
+
+export interface DbDeleteWireResponse {
+  ok: boolean;
+  deleted: number;
+  error?: string;
+}
+
+export interface DbResetMemoryWireResponse {
+  ok: boolean;
+  deleted_notes: number;
+  reset_libraries: number;
+  target: string;
+  error?: string;
+}
+
+export interface ReplayStatusWireResponse {
+  status: 'computing' | 'ready' | 'error';
+  run: number;
+  error?: string;
+}
+
 
 export interface BackendShapeWire {
   k: string;

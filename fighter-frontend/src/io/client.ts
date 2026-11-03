@@ -7,24 +7,41 @@
  */
 
 import type {
+  ActivityEvent,
+  CatalogResource,
   FightCommand,
   PracticeCommand,
   ReplayLoadResult,
   SavedRun,
-  SimulationKind,
   SimulationJob,
+  SimulationKind,
 } from '../core/commands';
 import type {
+  DbCatalogWireResponse,
+  DbDeleteWireResponse,
+  DbRecordWireResponse,
+  DbResetMemoryWireResponse,
+  DbResourceListWireResponse,
+  EventsListWireResponse,
   HealthWireResponse,
   JobWireResponse,
+  JobsListWireResponse,
   MemoryWireResponse,
+  ReplayStatusWireResponse,
   ReplayWireResponse,
   RunsWireResponse,
   StartFightWireInput,
   StartJobWireResponse,
   StartPracticeWireInput,
 } from './contracts';
-import { mapJob, mapReplayResponse, mapRunSummary } from './mapper';
+import {
+  mapActivityEvent,
+  mapCatalogResource,
+  mapJob,
+  mapJobAudit,
+  mapReplayResponse,
+  mapRunSummary,
+} from './mapper';
 
 const configuredBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 const API_BASE_URL = configuredBaseUrl.trim().replace(/\/+$/, '');
@@ -48,7 +65,7 @@ function makeUrl(path: string): string {
 
 async function request<T>(
   path: string,
-  options: { method?: 'GET' | 'POST'; body?: unknown; adminToken?: string } = {},
+  options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; adminToken?: string } = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -101,19 +118,20 @@ export const api = {
     return response.runs.map(mapRunSummary);
   },
 
-  /** Translate app vocabulary into the exact POST /practice payload. */
+  /** Translate app vocabulary into the exact POST /practice payload including duration. */
   startPractice: async (command: PracticeCommand, adminToken: string): Promise<string> => {
     const body: StartPracticeWireInput = {
       ai: command.memorySlot,
       preset: command.provider,
       interval: command.thinkingIntervalSeconds,
       effort: command.reasoning,
+      duration_minutes: command.durationMinutes,
     };
     const response = await request<StartJobWireResponse>('/practice', { method: 'POST', body, adminToken });
     return response.job;
   },
 
-  /** Translate app vocabulary into the exact POST /fight payload. */
+  /** Translate app vocabulary into the exact POST /fight payload including duration. */
   startFight: async (command: FightCommand, adminToken: string): Promise<string> => {
     const body: StartFightWireInput = {
       presetA: command.fighterA.provider,
@@ -121,6 +139,7 @@ export const api = {
       interval: command.thinkingIntervalSeconds,
       effortA: command.fighterA.reasoning,
       effortB: command.fighterB.reasoning,
+      duration_minutes: command.durationMinutes,
     };
     const response = await request<StartJobWireResponse>('/fight', { method: 'POST', body, adminToken });
     return response.job;
@@ -139,10 +158,91 @@ export const api = {
     return { status: 'ready', scene: mapReplayResponse(response) };
   },
 
-  /** Optional read-only memory data, normalized later if it is exposed in UI. */
+  /** Fast status check for replay readiness without loading full frame payload. */
+  getReplayStatus: async (kind: SimulationKind, runNumber: number): Promise<{ status: string; run: number }> => {
+    return request<ReplayStatusWireResponse>(`/replay/${kind}/${encodeURIComponent(String(runNumber))}/status`);
+  },
+
+  /** Optional read-only memory data. */
   getMemory: (ai: 'A' | 'B') => request<MemoryWireResponse>(`/memory/${ai}`),
+
+  // ---- Admin Monitoring Endpoints ----
+  listJobs: async (adminToken: string, limit = 50): Promise<SimulationJob[]> => {
+    const response = await request<JobsListWireResponse>(`/admin/jobs?limit=${limit}`, { adminToken });
+    return response.jobs.map(mapJobAudit);
+  },
+
+  listEvents: async (adminToken: string, limit = 100, sinceId?: number): Promise<ActivityEvent[]> => {
+    const path = sinceId ? `/admin/events?limit=${limit}&since_id=${sinceId}` : `/admin/events?limit=${limit}`;
+    const response = await request<EventsListWireResponse>(path, { adminToken });
+    return response.events.map(mapActivityEvent);
+  },
+
+  // ---- Dynamic Database Management Endpoints ----
+  getDbCatalog: async (adminToken: string): Promise<CatalogResource[]> => {
+    const response = await request<DbCatalogWireResponse>('/admin/db/catalog', { adminToken });
+    return response.catalog.map(mapCatalogResource);
+  },
+
+  listDbResource: async (
+    adminToken: string,
+    resourceKey: string,
+    limit = 50,
+    offset = 0,
+  ): Promise<{ items: Record<string, unknown>[]; total: number; limit: number; offset: number }> => {
+    return request<DbResourceListWireResponse>(
+      `/admin/db/${encodeURIComponent(resourceKey)}?limit=${limit}&offset=${offset}`,
+      { adminToken },
+    );
+  },
+
+  getDbRecord: async (
+    adminToken: string,
+    resourceKey: string,
+    id: string | number,
+  ): Promise<Record<string, unknown>> => {
+    const response = await request<DbRecordWireResponse>(
+      `/admin/db/${encodeURIComponent(resourceKey)}/${encodeURIComponent(String(id))}`,
+      { adminToken },
+    );
+    return response.item;
+  },
+
+  deleteDbRecord: async (
+    adminToken: string,
+    resourceKey: string,
+    id: string | number,
+  ): Promise<{ ok: boolean; deleted: number }> => {
+    return request<DbDeleteWireResponse>(
+      `/admin/db/${encodeURIComponent(resourceKey)}/${encodeURIComponent(String(id))}`,
+      { method: 'DELETE', adminToken },
+    );
+  },
+
+  deleteDbBatch: async (
+    adminToken: string,
+    resourceKey: string,
+    ids: (string | number)[],
+  ): Promise<{ ok: boolean; deleted: number }> => {
+    return request<DbDeleteWireResponse>(
+      `/admin/db/${encodeURIComponent(resourceKey)}/delete-batch`,
+      { method: 'POST', body: { ids }, adminToken },
+    );
+  },
+
+  resetMemory: async (
+    adminToken: string,
+    target: 'A' | 'B' | 'all' = 'all',
+  ): Promise<{ ok: boolean; deleted_notes: number; reset_libraries: number; target: string }> => {
+    return request<DbResetMemoryWireResponse>('/admin/db/reset-memory', {
+      method: 'POST',
+      body: { target },
+      adminToken,
+    });
+  },
 };
 
 export function getConfiguredApiUrl(): string {
   return API_BASE_URL;
 }
+

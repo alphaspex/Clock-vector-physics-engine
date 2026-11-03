@@ -6,12 +6,15 @@
  */
 
 import type {
+  CatalogResourceWire,
+  JobAuditWire,
+  JobEventWire,
   JobWireResponse,
   ReplayReadyWireResponse,
   RunSummaryWire,
 } from './contracts';
 import type { ReplayScene, SceneBlueprint, SceneFrame, ScenePrimitive } from '../core/scene';
-import type { SavedRun, SimulationJob } from '../core/commands';
+import type { ActivityEvent, CatalogResource, SavedRun, SimulationJob, SimulationKind } from '../core/commands';
 
 function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -27,14 +30,89 @@ export function mapRunSummary(wire: RunSummaryWire): SavedRun {
 }
 
 export function mapJob(wire: JobWireResponse): SimulationJob {
-  if (wire.status === 'done') {
-    return { state: 'done', runNumber: typeof wire.run === 'number' ? wire.run : undefined };
-  }
-  if (wire.status === 'error') {
-    return { state: 'error', errorMessage: wire.error || 'The backend job failed.' };
-  }
-  return { state: 'running' };
+  const isDone = wire.status === 'done';
+  const isError = wire.status === 'error';
+  const state: 'running' | 'done' | 'error' = isDone ? 'done' : isError ? 'error' : 'running';
+
+  return {
+    id: wire.id || '',
+    kind: (wire.kind as SimulationKind) || 'practice',
+    state,
+    stage: wire.stage || (isDone ? 'ready' : isError ? 'failed' : 'simulation'),
+    runNumber: typeof wire.run === 'number' ? wire.run : undefined,
+    result: wire.result ?? null,
+    percent: typeof wire.percent === 'number' ? wire.percent : undefined,
+    decision: typeof wire.decision === 'number' ? wire.decision : undefined,
+    targetDecisions: typeof wire.target_decisions === 'number' ? wire.target_decisions : undefined,
+    frame: typeof wire.frame === 'number' ? wire.frame : undefined,
+    maxFrame: typeof wire.max_frame === 'number' ? wire.max_frame : undefined,
+    elapsedMs: typeof wire.elapsed_ms === 'number' ? wire.elapsed_ms : undefined,
+    startedAt: typeof wire.started === 'number' ? wire.started : undefined,
+    params: wire.params,
+    usage: wire.usage ? {
+      prompt: wire.usage.prompt || 0,
+      completion: wire.usage.completion || 0,
+      reasoning: wire.usage.reasoning || 0,
+    } : undefined,
+    errorMessage: wire.error,
+  };
 }
+
+export function mapJobAudit(wire: JobAuditWire): SimulationJob {
+  const isDone = wire.status === 'done';
+  const isError = wire.status === 'error';
+  const state: 'running' | 'done' | 'error' = isDone ? 'done' : isError ? 'error' : 'running';
+
+  return {
+    id: wire.id,
+    kind: wire.kind,
+    state,
+    stage: wire.stage || (isDone ? 'ready' : isError ? 'failed' : 'simulation'),
+    runNumber: wire.run,
+    result: wire.result ?? null,
+    elapsedMs: wire.elapsed_ms,
+    startedAt: wire.started,
+    createdAt: wire.created,
+    params: wire.params,
+    usage: wire.usage ? {
+      prompt: wire.usage.prompt || 0,
+      completion: wire.usage.completion || 0,
+      reasoning: wire.usage.reasoning || 0,
+    } : undefined,
+    errorMessage: wire.error ?? undefined,
+  };
+}
+
+export function mapActivityEvent(wire: JobEventWire): ActivityEvent {
+  return {
+    id: wire.id,
+    jobId: wire.job_id,
+    createdAt: wire.created,
+    severity: wire.severity,
+    stage: wire.stage,
+    message: wire.message,
+    metadata: wire.metadata,
+  };
+}
+
+export function mapCatalogResource(wire: CatalogResourceWire): CatalogResource {
+  return {
+    key: wire.key,
+    label: wire.label,
+    description: wire.description,
+    count: wire.count,
+    primaryKey: wire.primary_key,
+    operations: wire.operations,
+    reversible: wire.reversible,
+    fields: wire.fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      primary: f.primary,
+    })),
+  };
+}
+
 
 export function mapReplayResponse(payload: ReplayReadyWireResponse): ReplayScene {
   const init = payload.init;

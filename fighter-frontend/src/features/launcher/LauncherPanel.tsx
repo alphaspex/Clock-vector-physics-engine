@@ -1,21 +1,33 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { ChevronDown, KeyRound, Play, ShieldCheck } from 'lucide-react';
+import { ChevronDown, Cpu, KeyRound, Play, ShieldCheck } from 'lucide-react';
 import type { FightCommand, MemorySlot, ModelProvider, PracticeCommand, ReasoningMode } from '../../core/commands';
+import NumericInput from './NumericInput';
 
 interface Props {
   backendOnline: boolean;
   busy: boolean;
   activityMessage: string;
+  adminToken: string;
+  onAdminTokenChange: (token: string) => void;
   onStartPractice: (input: PracticeCommand, token: string) => void;
   onStartFight: (input: FightCommand, token: string) => void;
 }
 
-const PROVIDERS: { value: ModelProvider; label: string; note: string }[] = [
-  { value: 'meta_contrib', label: 'Meta · Contributor', note: 'muse-spark-1.3-contributor' },
-  { value: 'meta', label: 'Meta · Muse Spark', note: 'muse-spark-1.3' },
-  { value: 'baseten', label: 'Baseten · Open', note: 'meta-models/muse-spark-open' },
+type ProviderFamily = 'meta' | 'baseten';
+
+interface ModelChoice {
+  value: ModelProvider;
+  label: string;
+  identifier: string;
+}
+
+const META_MODELS: ModelChoice[] = [
+  { value: 'meta_contrib', label: 'Muse Spark 1.3 Contributor', identifier: 'muse-spark-1.3-contributor' },
+  { value: 'meta', label: 'Muse Spark 1.3', identifier: 'muse-spark-1.3' },
 ];
+
+const BASETEN_FIXED_IDENTIFIER = 'meta-models/muse-spark-open-1026';
 
 const EFFORTS: ReasoningMode[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -49,41 +61,134 @@ function SelectField<T extends string>({
   );
 }
 
-const providerLabels = Object.fromEntries(PROVIDERS.map((provider) => [provider.value, provider.label])) as Record<ModelProvider, string>;
-
 /**
- * UI-only launcher. Change a select to a text box, add a button, or rearrange
- * this panel without touching the API client or 3D viewer. Its callbacks emit
- * the same typed command objects consumed by the app controller.
+ * Provider and Model selector ensuring Meta offers its two exact models,
+ * and Baseten displays only its fixed model (meta-models/muse-spark-open-1026) as read-only.
  */
-export default function LauncherPanel({ backendOnline, busy, activityMessage, onStartPractice, onStartFight }: Props) {
+function ProviderModelSelector({
+  label,
+  currentPreset,
+  onChangePreset,
+}: {
+  label: string;
+  currentPreset: ModelProvider;
+  onChangePreset: (preset: ModelProvider) => void;
+}) {
+  const family: ProviderFamily = currentPreset === 'baseten' ? 'baseten' : 'meta';
+
+  const handleFamilyChange = (nextFamily: ProviderFamily) => {
+    if (nextFamily === 'baseten') {
+      onChangePreset('baseten');
+    } else {
+      onChangePreset('meta_contrib');
+    }
+  };
+
+  return (
+    <div className="provider-block">
+      <div className="field-grid field-grid--two">
+        <label className="field">
+          <span className="field__label">{label} Provider</span>
+          <span className="select-wrap">
+            <select
+              value={family}
+              onChange={(e) => handleFamilyChange(e.target.value as ProviderFamily)}
+            >
+              <option value="meta">Meta</option>
+              <option value="baseten">Baseten</option>
+            </select>
+            <ChevronDown size={15} aria-hidden="true" />
+          </span>
+        </label>
+
+        {family === 'meta' ? (
+          <label className="field">
+            <span className="field__label">Meta Model</span>
+            <span className="select-wrap">
+              <select
+                value={currentPreset}
+                onChange={(e) => onChangePreset(e.target.value as ModelProvider)}
+              >
+                {META_MODELS.map((m) => (
+                  <option value={m.value} key={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </span>
+          </label>
+        ) : (
+          <div className="field">
+            <span className="field__label">Baseten Model (Fixed)</span>
+            <div className="readonly-badge" title="Baseten uses fixed open model">
+              <Cpu size={12} />
+              <span>{BASETEN_FIXED_IDENTIFIER}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      <p className="micro-note">
+        {family === 'meta'
+          ? currentPreset === 'meta_contrib'
+            ? 'Model identifier: muse-spark-1.3-contributor (system role, reasoning supported)'
+            : 'Model identifier: muse-spark-1.3 (system role, reasoning supported)'
+          : 'Fixed model: meta-models/muse-spark-open-1026 (developer role, fixed model)'}
+      </p>
+    </div>
+  );
+}
+
+export default function LauncherPanel({
+  backendOnline,
+  busy,
+  activityMessage,
+  adminToken,
+  onAdminTokenChange,
+  onStartPractice,
+  onStartFight,
+}: Props) {
   const [mode, setMode] = useState<Mode>('practice');
-  const [adminToken, setAdminToken] = useState('');
   const [practiceAI, setPracticeAI] = useState<MemorySlot>('A');
   const [practicePreset, setPracticePreset] = useState<ModelProvider>('meta_contrib');
   const [practiceEffort, setPracticeEffort] = useState<ReasoningMode>('high');
   const [practiceInterval, setPracticeInterval] = useState(3);
+  const [practiceDuration, setPracticeDuration] = useState(3.0);
+
   const [presetA, setPresetA] = useState<ModelProvider>('meta_contrib');
-  const [presetB, setPresetB] = useState<ModelProvider>('meta_contrib');
+  const [presetB, setPresetB] = useState<ModelProvider>('baseten');
   const [effortA, setEffortA] = useState<ReasoningMode>('minimal');
   const [effortB, setEffortB] = useState<ReasoningMode>('minimal');
   const [fightInterval, setFightInterval] = useState(3);
+  const [fightDuration, setFightDuration] = useState(1.0);
 
   const canLaunch = backendOnline && !busy && adminToken.trim().length > 0;
-  const providerOptions = PROVIDERS.map((provider) => provider.value);
 
   const submitPractice = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onStartPractice({ memorySlot: practiceAI, provider: practicePreset, thinkingIntervalSeconds: practiceInterval, reasoning: practiceEffort }, adminToken.trim());
+    onStartPractice(
+      {
+        memorySlot: practiceAI,
+        provider: practicePreset,
+        thinkingIntervalSeconds: practiceInterval,
+        reasoning: practiceEffort,
+        durationMinutes: practiceDuration,
+      },
+      adminToken.trim(),
+    );
   };
 
   const submitFight = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onStartFight({
-      fighterA: { provider: presetA, reasoning: effortA },
-      fighterB: { provider: presetB, reasoning: effortB },
-      thinkingIntervalSeconds: fightInterval,
-    }, adminToken.trim());
+    onStartFight(
+      {
+        fighterA: { provider: presetA, reasoning: effortA },
+        fighterB: { provider: presetB, reasoning: effortB },
+        thinkingIntervalSeconds: fightInterval,
+        durationMinutes: fightDuration,
+      },
+      adminToken.trim(),
+    );
   };
 
   return (
@@ -97,10 +202,22 @@ export default function LauncherPanel({ backendOnline, busy, activityMessage, on
       </div>
 
       <div className="mode-switch" role="tablist" aria-label="Simulation type">
-        <button type="button" role="tab" aria-selected={mode === 'practice'} className={mode === 'practice' ? 'is-active' : ''} onClick={() => setMode('practice')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'practice'}
+          className={mode === 'practice' ? 'is-active' : ''}
+          onClick={() => setMode('practice')}
+        >
           Practice
         </button>
-        <button type="button" role="tab" aria-selected={mode === 'fight'} className={mode === 'fight' ? 'is-active' : ''} onClick={() => setMode('fight')}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'fight'}
+          className={mode === 'fight' ? 'is-active' : ''}
+          onClick={() => setMode('fight')}
+        >
           Fight
         </button>
       </div>
@@ -118,16 +235,42 @@ export default function LauncherPanel({ backendOnline, busy, activityMessage, on
                 <ChevronDown size={15} aria-hidden="true" />
               </span>
             </label>
-            <label className="field">
-              <span className="field__label">Think interval</span>
-              <span className="number-wrap">
-                <input type="number" min={1} max={10} step={1} value={practiceInterval} onChange={(event) => setPracticeInterval(Math.min(10, Math.max(1, Number(event.target.value) || 1)))} />
-                <span>sec</span>
-              </span>
-            </label>
+            <NumericInput
+              label="Duration"
+              value={practiceDuration}
+              onChange={setPracticeDuration}
+              min={0.2}
+              max={30.0}
+              step={0.5}
+              unit="min"
+              isDecimal={true}
+            />
           </div>
-          <SelectField label="AI provider" value={practicePreset} values={providerOptions} onChange={setPracticePreset} descriptions={providerLabels} />
-          <SelectField label="Reasoning effort" value={practiceEffort} values={EFFORTS} onChange={setPracticeEffort} />
+
+          <div className="field-grid field-grid--two">
+            <NumericInput
+              label="Think interval"
+              value={practiceInterval}
+              onChange={setPracticeInterval}
+              min={1}
+              max={10}
+              step={1}
+              unit="sec"
+            />
+            <SelectField
+              label="Reasoning effort"
+              value={practiceEffort}
+              values={EFFORTS}
+              onChange={setPracticeEffort}
+            />
+          </div>
+
+          <ProviderModelSelector
+            label="Practice"
+            currentPreset={practicePreset}
+            onChangePreset={setPracticePreset}
+          />
+
           <button className="button button--primary button--wide" type="submit" disabled={!canLaunch}>
             <Play size={15} fill="currentColor" /> Start practice
           </button>
@@ -135,22 +278,63 @@ export default function LauncherPanel({ backendOnline, busy, activityMessage, on
       ) : (
         <form className="launcher-form" onSubmit={submitFight}>
           <div className="fighter-config">
-            <div className="fighter-config__heading"><span className="fighter-mark">A</span><strong>Fighter A</strong></div>
-            <SelectField label="AI provider" value={presetA} values={providerOptions} onChange={setPresetA} descriptions={providerLabels} />
-            <SelectField label="Reasoning effort" value={effortA} values={EFFORTS} onChange={setEffortA} />
+            <div className="fighter-config__heading">
+              <span className="fighter-mark">A</span>
+              <strong>Fighter A</strong>
+            </div>
+            <ProviderModelSelector
+              label="Fighter A"
+              currentPreset={presetA}
+              onChangePreset={setPresetA}
+            />
+            <SelectField
+              label="Reasoning effort"
+              value={effortA}
+              values={EFFORTS}
+              onChange={setEffortA}
+            />
           </div>
+
           <div className="fighter-config">
-            <div className="fighter-config__heading"><span className="fighter-mark fighter-mark--b">B</span><strong>Fighter B</strong></div>
-            <SelectField label="AI provider" value={presetB} values={providerOptions} onChange={setPresetB} descriptions={providerLabels} />
-            <SelectField label="Reasoning effort" value={effortB} values={EFFORTS} onChange={setEffortB} />
+            <div className="fighter-config__heading">
+              <span className="fighter-mark fighter-mark--b">B</span>
+              <strong>Fighter B</strong>
+            </div>
+            <ProviderModelSelector
+              label="Fighter B"
+              currentPreset={presetB}
+              onChangePreset={setPresetB}
+            />
+            <SelectField
+              label="Reasoning effort"
+              value={effortB}
+              values={EFFORTS}
+              onChange={setEffortB}
+            />
           </div>
-          <label className="field">
-            <span className="field__label">Think interval</span>
-            <span className="number-wrap">
-              <input type="number" min={1} max={10} step={1} value={fightInterval} onChange={(event) => setFightInterval(Math.min(10, Math.max(1, Number(event.target.value) || 1)))} />
-              <span>sec</span>
-            </span>
-          </label>
+
+          <div className="field-grid field-grid--two">
+            <NumericInput
+              label="Fight duration"
+              value={fightDuration}
+              onChange={setFightDuration}
+              min={0.2}
+              max={30.0}
+              step={0.5}
+              unit="min"
+              isDecimal={true}
+            />
+            <NumericInput
+              label="Think interval"
+              value={fightInterval}
+              onChange={setFightInterval}
+              min={1}
+              max={10}
+              step={1}
+              unit="sec"
+            />
+          </div>
+
           <button className="button button--primary button--wide" type="submit" disabled={!canLaunch}>
             <Play size={15} fill="currentColor" /> Start fight
           </button>
@@ -164,18 +348,28 @@ export default function LauncherPanel({ backendOnline, busy, activityMessage, on
             className="text-input"
             type="password"
             value={adminToken}
-            onChange={(event) => setAdminToken(event.target.value)}
+            onChange={(event) => onAdminTokenChange(event.target.value)}
             placeholder="Enter server ADMIN_TOKEN"
             autoComplete="off"
             spellCheck={false}
           />
         </label>
-        <p className="micro-note"><ShieldCheck size={12} /> Kept in this tab's memory only. Never saved to the project or browser storage.</p>
+        <p className="micro-note">
+          <ShieldCheck size={12} /> Kept in this tab's memory only. Never saved to the project or browser storage.
+        </p>
       </div>
 
-      {busy && <div className="activity-inline"><span className="spinner" /> <span>{activityMessage}</span></div>}
-      {!backendOnline && <p className="form-hint">Connect the backend before launching a simulation. Saved replays become available when the service is online.</p>}
-      {backendOnline && !adminToken.trim() && <p className="form-hint">Read-only mode. Enter the admin token to enable new simulations.</p>}
+      {busy && (
+        <div className="activity-inline">
+          <span className="spinner" /> <span>{activityMessage}</span>
+        </div>
+      )}
+      {!backendOnline && (
+        <p className="form-hint">Connect the backend before launching a simulation. Saved replays become available when the service is online.</p>
+      )}
+      {backendOnline && !adminToken.trim() && (
+        <p className="form-hint">Read-only mode. Enter the admin token to enable new simulations, live monitoring, and database management.</p>
+      )}
     </section>
   );
 }

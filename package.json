@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "python3 -m http.server 3000 --bind 0.0.0.0",
     "build": "python3 -m py_compile backend/*.py",
-    "lint": "python3 -m py_compile backend/*.py"
+    "lint": "python3 -m py_compile backend/*.py",
+    "build:backend": "python3 -m py_compile backend/*.py",
+    "test:backend": "python3 backend/test_api_extensions.py",
+    "typecheck:frontend": "npm --prefix fighter-frontend run typecheck",
+    "build:frontend": "npm --prefix fighter-frontend run build"
   }
 }
