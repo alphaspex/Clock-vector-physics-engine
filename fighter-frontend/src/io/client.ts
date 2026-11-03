@@ -31,6 +31,7 @@ import type {
   LiveLogsWireResponse,
   MemoryWireResponse,
   ProviderConfigWire,
+  ReplayCompileWireResponse,
   ReplayStatusWireResponse,
   ReplayWireResponse,
   RunsWireResponse,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Film, Play, RefreshCw, AlertCircle, Clock, CheckCircle2, Loader2, Zap } from 'lucide-react';
+import { Film, Play, RefreshCw, AlertCircle, CheckCircle2, Zap } from 'lucide-react';
 import type { SavedRun, SimulationKind } from '../../core/commands';
 
 interface Props {
