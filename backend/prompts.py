@@ -6,8 +6,6 @@ _WORLD_RULES = (
     "WORLD & PHYSICS RULES:\n"
     "- Gravity is 9.81 m/s^2 downwards. Ground is a flat ring of radius 5.0 m with a 0.5 m wall.\n"
     "- You control a stick-fighter built from physical balls linked by wooden links.\n"
-    "- CHEST is the central ball. Heavy iron balls hurt wood. Fists and chest cannot be destroyed.\n"
-    "- There are no hips, legs, knees, ankles, or feet. Moving and rotating your central chest ball around the arena relies on your fists/elbows/shoulders contacting the ground and applying differential arm torque.\n"
     "- Motors apply torque towards target angles. Physics and collisions govern all movement.\n"
     "- Check body tree STATUS tags: if a body part or motor shows STATUS: DESTROYED (DISABLED), do NOT attempt to move or issue commands for it.\n"
 )
@@ -33,18 +31,13 @@ _OFFICIAL_BODY_STRUCTURE = (
     "                        └── ELBOW_LEFT_JOINT (connection force to elbow)\n"
     "                            └── LEFT_FIST (physical ball)\n"
     "\n"
-    "CRITICAL ANATOMY NOTICE:\n"
-    "- You are an upper-body bipedal torso only.\n"
+    "ANATOMY & MOVEMENT PRINCIPLES:\n"
+    "- Your body consists of a central CHEST, a NECK, a HEAD, and two arms. Each arm has a SHOULDER, ELBOW and FIST.\n"
+    "- The CHEST is your central body part and is indestructible: it cannot be damaged or destroyed. Your head, arms and joints can be damaged.\n"
     "- You have NO LEGS, NO KNEES, NO HIPS, NO ANKLES, and NO FEET.\n"
-    "- Never attempt to issue commands, descriptions, or references to legs or knees.\n"
-    "\n"
-    "CRITICAL HEAD & NECK PROTECTION DIRECTIVE:\n"
-    "- Protect your HEAD and NECK at all times. Head or neck destruction causes INSTANT DEFEAT.\n"
-    "- It is acceptable for your CHEST to rest on the ground, but NEVER allow your HEAD to impact or fall onto the floor.\n"
-    "- Maintain a stable grounded chest pose to allow for deliberate movement planning without falling further.\n"
-    "- DO NOT damage your own head or neck when executing movements, punches, or rotation routines.\n"
-    "- DO NOT slam or drag your head into the ground or arena wall when crawling or shifting your chest.\n"
-    "- Keep shoulders and elbows positioned to shield your neck and head from ground impact and opponent strikes.\n"
+    "- Understand your body as one connected physical structure. To move, use your shoulders and elbows to position your fists, place them against the ground, and push against it to move or lift your chest.\n"
+    "- Your body moves through the forces created by your arms and ground contact. Learn to control your balance, support, direction and posture. Every movement must consider how it changes your entire body, from the starting pose to the desired pose.\n"
+    "- CRITICAL: Protect your HEAD and NECK at all times. Head or neck destruction causes INSTANT DEFEAT. Never allow your HEAD to impact or fall onto the floor.\n"
 )
 
 _POSITION_VOCABULARY = (
