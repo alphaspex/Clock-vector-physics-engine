@@ -7,7 +7,7 @@ import concurrent.futures as cf
 import math
 import re
 from config import *
-import sim, moves, observe, prompts, practice_eval
+import sim, moves, observe, prompts, practice_eval, translator
 try:
     import server_logs
 except ImportError:
@@ -18,7 +18,7 @@ def _plain(steps):
     return [{m: [list(v[0]), v[1]] for m, v in s.items()} for s in steps]
 
 
-def _decide(ans, lib, info):
+def _decide(ans, lib, info, p=None, spec=None, f=0, fr=None):
     raw_text = ans.get("text") or ""
     thinking_text, word_count, clean_text, think_err = moves.extract_thinking(raw_text)
     # Pass mastered moves for chain validation
@@ -26,6 +26,11 @@ def _decide(ans, lib, info):
     parsed = moves.parse(clean_text, info, mastered_moves=mastered)
     lib2 = moves.merge(lib, parsed)
     steps, e2 = moves.compile_do(parsed["do"], lib2)
+    
+    # Translate position-based steps into motor rotations using IK
+    if p is not None and spec is not None and fr is not None:
+        steps = [translator.translate_step(s, p, spec, f, fr) for s in steps]
+        
     errs = list(parsed["errors"]) + e2
     if think_err:
         errs.append(think_err)
@@ -67,6 +72,7 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             transitions=last_transitions,
         )
 
+        fr = observe.torso_frame(st.p, spec, 0)
         ans = ask(system, obs)
         _add(usage, ans.get("usage"))
         errs = []
@@ -76,7 +82,7 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             if on_progress:
                 on_progress(dict(stage="ai_error", decision=decision_idx, error=ans["error"]))
         else:
-            lib, steps, errs, thinking_text, wc = _decide(ans, lib, info)
+            lib, steps, errs, thinking_text, wc = _decide(ans, lib, info, p=st.p, spec=spec, f=0, fr=fr)
             
             # --- MOTOR KNOWLEDGE EXTRACTION ---
             # Extract motor knowledge findings if the AI used the expected format
@@ -236,7 +242,8 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
                         on_progress(dict(stage="ai_error", decision=decision_idx, fighter="AB"[f], error=ans["error"]))
                     continue
 
-                libs[f], steps, errs[f], thinking_text, wc = _decide(ans, libs[f], info)
+                fr_f = observe.torso_frame(st.p, spec, f)
+                libs[f], steps, errs[f], thinking_text, wc = _decide(ans, libs[f], info, p=st.p, spec=spec, f=f, fr=fr_f)
                 raw_text = (ans.get("text") or "").strip()
                 display_text = thinking_text if thinking_text else raw_text
                 is_fallback = not bool(thinking_text)

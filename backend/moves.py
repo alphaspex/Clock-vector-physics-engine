@@ -138,12 +138,23 @@ def parse(text, motor_info, mastered_moves=None):
                 if not tok:
                     continue
                 motor_name = tok[0]
-                if motor_name not in motor_info:
-                    errors.append(f"{name}: unknown motor '{motor_name}'")
+                body_parts = ["RIGHT_ELBOW", "RIGHT_FIST", "LEFT_ELBOW", "LEFT_FIST"]
+                is_body_part = motor_name in body_parts
+                
+                if motor_name not in motor_info and not is_body_part:
+                    errors.append(f"{name}: unknown motor or body part '{motor_name}'")
                     continue
                 if len(tok) < 2:
-                    errors.append(f"{name}: {motor_name} needs an angle")
+                    errors.append(f"{name}: {motor_name} needs an angle or position description")
                     continue
+                
+                if is_body_part:
+                    # For body parts, we store the rest of the tokens as the "position description"
+                    # We'll translate this later in the simulation loop
+                    desc = " ".join(tok[1:])
+                    step[motor_name] = desc
+                    continue
+
                 try:
                     vals = [float(x) for x in tok[1].split(",")]
                     pw = float(tok[2]) if len(tok) > 2 else 1.0
