@@ -1,41 +1,27 @@
-# Implementation Plan - AI Chest Rotation, Body Part Destruction Display, and Move Deletion
+# Implementation Plan - Restrict Practice & Fight Launchers to Baseten Provider
 
 ## Summary
-This plan addresses three core engine requirements:
-1. **Chest Rotation & Arena Locomotion**: Clarify in system prompt rules and physics guidance how differential arm ground forces drive chest rotation and arena movement.
-2. **Destroyed Body Parts & Motor Status**: Update prompt tree formatting so destroyed body balls show `STATUS: DESTROYED` explicitly and associated motors display `STATUS: DESTROYED (DISABLED)` so the AI refrains from attempting to control destroyed limbs.
-3. **Move & Chain Deletion (`forget NAME`)**: Extend the move parser and library merger to support `forget NAME` (or `forget NAME1, NAME2`), allowing the AI in practice mode to delete obsolete or ineffective moves and chains.
+To streamline simulation launching, we will remove Meta model selection choices (`meta_contrib`, `meta`) from the Practice and Fight mode launcher UI, restricting all new simulation launches to **Baseten** (`baseten`).
+API diagnostic test calls (`check-api`) for Meta models will remain active in the **Live Control Room** diagnostic console so operators can still verify Meta endpoint connectivity.
 
 ---
 
 ## Target Changes
 
-### 1. Prompt Body Tree & Motor Status (`/backend/observe.py`)
-- **Body Part Destruction Status**:
-  - Update `build_fighter_tree()` to check `palive[ball_idx]` for `CHEST`, `HEAD`, `RIGHT_SHOULDER`, `RIGHT_ELBOW`, `RIGHT_FIST`, `LEFT_SHOULDER`, `LEFT_ELBOW`, `LEFT_FIST`.
-  - Display `STATUS: INTACT` or `STATUS: DESTROYED` under every physical body part heading.
-  - In `build_enemy_tree()`, include `STATUS: INTACT` or `STATUS: DESTROYED` for enemy body parts.
-- **Motor Destruction Status**:
-  - Update `format_motor_state()` to check if the motor's pivot or joint is destroyed (`not palive[mo['pv']]` or `not lalive[mo['lid']]`).
-  - If destroyed, format as `STATUS: DESTROYED (DISABLED)` instead of reporting target rotations.
+### 1. Launcher Panel Component (`/fighter-frontend/src/features/launcher/LauncherPanel.tsx`)
+- **Remove Meta Provider Selection**:
+  - Update `practicePreset`, `presetA`, and `presetB` state defaults to `'baseten'`.
+  - Simplify `ProviderModelSelector` to display Baseten as the exclusive fixed provider (`meta-models/muse-spark-open-1026`) for practice and fight launches.
 
-### 2. Move & Chain Deletion Engine (`/backend/moves.py` & `/backend/prompts.py`)
-- **Parser Extension (`/backend/moves.py`)**:
-  - Add parsing for `forget NAME` or `delete NAME` (handling comma-separated lists of move/chain names).
-  - Return `forget` list in `parse()` results.
-- **Library Merger (`/backend/moves.py`)**:
-  - In `merge()`, remove any names present in `parsed["forget"]` from `library["moves"]`, `library["chains"]`, `library["move_descriptions"]`, and `library["chain_descriptions"]`.
-- **System Prompt Rules (`/backend/prompts.py`)**:
-  - Update `_MOTOR_RULES` and `practice_system()` to document `forget NAME` syntax for removing saved moves/chains.
-
-### 3. Chest Rotation & Arena Locomotion Guidance (`/backend/prompts.py`)
-- Clarify in `_WORLD_RULES` and `_MOTOR_RULES` how arm pushes against the ground produce reaction torques that rotate the central chest ball and propel the fighter across the arena.
+### 2. Live Control Room Console (`/fighter-frontend/src/features/monitoring/ControlRoomPanel.tsx`)
+- **Preserve Diagnostic Tests**:
+  - Keep the full API diagnostics grid intact so Meta (`meta_contrib`, `meta`) and Baseten (`baseten`) models can be pinged (`checkApi`) and configured.
 
 ---
 
 ## Verification Plan
-1. Validate Python modules using `py_compile`.
-2. Test move parser with `forget` command syntax.
+1. Verify launcher component renders Baseten exclusively for Practice & Fight launches.
+2. Confirm Live Control Room still renders diagnostic test cards for Meta and Baseten.
 3. Run `compile_applet` to confirm overall applet build state.
 
 ## Progress Tracking & Status Reporting

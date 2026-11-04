@@ -15,19 +15,6 @@ interface Props {
   activeThinking?: import('../../core/commands').ThinkingItem;
 }
 
-type ProviderFamily = 'meta' | 'baseten';
-
-interface ModelChoice {
-  value: ModelProvider;
-  label: string;
-  identifier: string;
-}
-
-const META_MODELS: ModelChoice[] = [
-  { value: 'meta_contrib', label: 'Muse Spark 1.3 Contributor', identifier: 'muse-spark-1.3-contributor' },
-  { value: 'meta', label: 'Muse Spark 1.3', identifier: 'muse-spark-1.3' },
-];
-
 const BASETEN_FIXED_IDENTIFIER = 'meta-models/muse-spark-open-1026';
 
 const EFFORTS: ReasoningMode[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -63,78 +50,35 @@ function SelectField<T extends string>({
 }
 
 /**
- * Provider and Model selector ensuring Meta offers its two exact models,
- * and Baseten displays only its fixed model (meta-models/muse-spark-open-1026) as read-only.
+ * Provider and Model display showing Baseten as the exclusive fixed provider
+ * (meta-models/muse-spark-open-1026) for simulations.
  */
 function ProviderModelSelector({
   label,
-  currentPreset,
-  onChangePreset,
 }: {
   label: string;
-  currentPreset: ModelProvider;
-  onChangePreset: (preset: ModelProvider) => void;
 }) {
-  const family: ProviderFamily = currentPreset === 'baseten' ? 'baseten' : 'meta';
-
-  const handleFamilyChange = (nextFamily: ProviderFamily) => {
-    if (nextFamily === 'baseten') {
-      onChangePreset('baseten');
-    } else {
-      onChangePreset('meta_contrib');
-    }
-  };
-
   return (
     <div className="provider-block">
       <div className="field-grid field-grid--two">
-        <label className="field">
+        <div className="field">
           <span className="field__label">{label} Provider</span>
-          <span className="select-wrap">
-            <select
-              value={family}
-              onChange={(e) => handleFamilyChange(e.target.value as ProviderFamily)}
-            >
-              <option value="meta">Meta</option>
-              <option value="baseten">Baseten</option>
-            </select>
-            <ChevronDown size={15} aria-hidden="true" />
-          </span>
-        </label>
-
-        {family === 'meta' ? (
-          <label className="field">
-            <span className="field__label">Meta Model</span>
-            <span className="select-wrap">
-              <select
-                value={currentPreset}
-                onChange={(e) => onChangePreset(e.target.value as ModelProvider)}
-              >
-                {META_MODELS.map((m) => (
-                  <option value={m.value} key={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={15} aria-hidden="true" />
-            </span>
-          </label>
-        ) : (
-          <div className="field">
-            <span className="field__label">Baseten Model (Fixed)</span>
-            <div className="readonly-badge" title="Baseten uses fixed open model">
-              <Cpu size={12} />
-              <span>{BASETEN_FIXED_IDENTIFIER}</span>
-            </div>
+          <div className="readonly-badge" title="Baseten is the active simulation provider">
+            <Cpu size={12} />
+            <span>Baseten</span>
           </div>
-        )}
+        </div>
+
+        <div className="field">
+          <span className="field__label">Baseten Model (Fixed)</span>
+          <div className="readonly-badge" title="Baseten uses fixed open model">
+            <Cpu size={12} />
+            <span>{BASETEN_FIXED_IDENTIFIER}</span>
+          </div>
+        </div>
       </div>
       <p className="micro-note">
-        {family === 'meta'
-          ? currentPreset === 'meta_contrib'
-            ? 'Model identifier: muse-spark-1.3-contributor (system role, reasoning supported)'
-            : 'Model identifier: muse-spark-1.3 (system role, reasoning supported)'
-          : 'Fixed model: meta-models/muse-spark-open-1026 (developer role, fixed model)'}
+        Fixed model: meta-models/muse-spark-open-1026 (developer role, fixed model)
       </p>
     </div>
   );
@@ -152,13 +96,13 @@ export default function LauncherPanel({
 }: Props) {
   const [mode, setMode] = useState<Mode>('practice');
   const [practiceAI, setPracticeAI] = useState<MemorySlot>('A');
-  const [practicePreset, setPracticePreset] = useState<ModelProvider>('meta_contrib');
+  const [practicePreset] = useState<ModelProvider>('baseten');
   const [practiceEffort, setPracticeEffort] = useState<ReasoningMode>('high');
   const [practiceInterval, setPracticeInterval] = useState(3);
   const [practiceDuration, setPracticeDuration] = useState(3.0);
 
-  const [presetA, setPresetA] = useState<ModelProvider>('meta_contrib');
-  const [presetB, setPresetB] = useState<ModelProvider>('baseten');
+  const [presetA] = useState<ModelProvider>('baseten');
+  const [presetB] = useState<ModelProvider>('baseten');
   const [effortA, setEffortA] = useState<ReasoningMode>('minimal');
   const [effortB, setEffortB] = useState<ReasoningMode>('minimal');
   const [fightInterval, setFightInterval] = useState(3);
@@ -267,11 +211,7 @@ export default function LauncherPanel({
             />
           </div>
 
-          <ProviderModelSelector
-            label="Practice"
-            currentPreset={practicePreset}
-            onChangePreset={setPracticePreset}
-          />
+          <ProviderModelSelector label="Practice" />
 
           <button className="button button--primary button--wide" type="submit" disabled={!canLaunch}>
             <Play size={15} fill="currentColor" /> Start practice
@@ -284,11 +224,7 @@ export default function LauncherPanel({
               <span className="fighter-mark">A</span>
               <strong>Fighter A</strong>
             </div>
-            <ProviderModelSelector
-              label="Fighter A"
-              currentPreset={presetA}
-              onChangePreset={setPresetA}
-            />
+            <ProviderModelSelector label="Fighter A" />
             <SelectField
               label="Reasoning effort"
               value={effortA}
@@ -302,11 +238,7 @@ export default function LauncherPanel({
               <span className="fighter-mark fighter-mark--b">B</span>
               <strong>Fighter B</strong>
             </div>
-            <ProviderModelSelector
-              label="Fighter B"
-              currentPreset={presetB}
-              onChangePreset={setPresetB}
-            />
+            <ProviderModelSelector label="Fighter B" />
             <SelectField
               label="Reasoning effort"
               value={effortB}

@@ -1,6 +1,6 @@
 {
-  "summary": "Plan to fix chest rotation guidance, add STATUS: DESTROYED tags for body parts and motors in AI prompts, and add 'forget NAME' syntax for AI move deletion in practice mode.",
-  "updatedAt": "2026-11-04T11:44:31.440993119Z",
+  "summary": "Plan to remove Meta model provider options from Practice and Fight launcher forms, restricting simulation runs to Baseten while preserving Meta API diagnostic testing in Live Control Room.",
+  "updatedAt": "2026-11-04T12:21:29.075418115Z",
   "requestFeedback": true,
   "userFacing": true
 }
