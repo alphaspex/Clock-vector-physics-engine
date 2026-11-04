@@ -42,8 +42,8 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
     setLoadingMemory(true);
     try {
       const [resA, resB] = await Promise.all([
-        api.getAiMemory('A'),
-        api.getAiMemory('B')
+        api.getMemory('A'),
+        api.getMemory('B')
       ]);
       setMemoryA(resA);
       setMemoryB(resB);
