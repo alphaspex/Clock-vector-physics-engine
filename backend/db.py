@@ -35,7 +35,7 @@ def init(conn):
     _x(conn, f"CREATE TABLE IF NOT EXISTS job_events (id {pk}, job_id TEXT, created TEXT, severity TEXT, stage TEXT, message TEXT, metadata TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, val TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS replays (kind TEXT, n INTEGER, status TEXT, progress TEXT, data TEXT, PRIMARY KEY (kind, n))")
-    _x(conn, f"CREATE TABLE IF NOT EXISTS interval_descriptions (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, text TEXT, word_count INTEGER, created TEXT)")
+    _x(conn, f"CREATE TABLE IF NOT EXISTS interval_descriptions (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, text TEXT, word_count INTEGER, pre_tree TEXT, post_tree TEXT, created TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS round_summaries (id {pk}, ai TEXT, kind TEXT, run_n INTEGER, text TEXT, created TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS move_history (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, syntax TEXT, created TEXT)")
     conn.commit()
@@ -45,14 +45,14 @@ def _now():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
 
-def save_interval_description(conn, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count):
-    _x(conn, "INSERT INTO interval_descriptions (job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-       (job_id or "", kind or "", run_n or 0, fighter or "A", interval_idx or 0, frame or 0, time_sec or 0.0, text, word_count, _now()))
+def save_interval_description(conn, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, pre_tree, post_tree):
+    _x(conn, "INSERT INTO interval_descriptions (job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, pre_tree, post_tree, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+       (job_id or "", kind or "", run_n or 0, fighter or "A", interval_idx or 0, frame or 0, time_sec or 0.0, text or "", word_count or 0, pre_tree or "", post_tree or "", _now()))
     conn.commit()
 
 
 def get_interval_descriptions(conn, job_id=None, kind=None, run_n=None, fighter=None, limit=100):
-    query = "SELECT job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions WHERE 1=1"
+    query = "SELECT job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, pre_tree, post_tree, created FROM interval_descriptions WHERE 1=1"
     args = []
     if job_id:
         query += " AND job_id=%s"
@@ -69,7 +69,24 @@ def get_interval_descriptions(conn, job_id=None, kind=None, run_n=None, fighter=
     query += " ORDER BY id ASC LIMIT %s"
     args.append(limit)
     rows = _x(conn, query, tuple(args)).fetchall()
-    return [dict(job_id=r[0], kind=r[1], run_n=r[2], fighter=r[3], interval_idx=r[4], frame=r[5], time_sec=r[6], text=r[7], word_count=r[8], created=r[9]) for r in rows]
+    return [dict(job_id=r[0], kind=r[1], run_n=r[2], fighter=r[3], interval_idx=r[4], frame=r[5], time_sec=r[6], text=r[7], word_count=r[8], pre_tree=r[9], post_tree=r[10], created=r[11]) for r in rows]
+
+
+def get_latest_intervals(conn, fighter, kind, limit=7):
+    """Loads latest interval records for a fighter and mode (task/fight)."""
+    rows = _x(conn, "SELECT text, pre_tree, post_tree FROM interval_descriptions WHERE fighter=%s AND kind=%s AND text IS NOT NULL AND text != '' ORDER BY id DESC LIMIT %s", (fighter, kind, limit)).fetchall()
+    return [dict(description=r[0], pre_tree=r[1], post_tree=r[2]) for r in reversed(rows)]
+
+
+def get_undescribed_intervals(conn, fighter, kind, limit=7):
+    """Loads intervals that don't have an AI description yet."""
+    rows = _x(conn, "SELECT id, pre_tree, post_tree FROM interval_descriptions WHERE fighter=%s AND kind=%s AND (text IS NULL OR text = '') ORDER BY id ASC LIMIT %s", (fighter, kind, limit)).fetchall()
+    return [dict(id=r[0], pre_tree=r[1], post_tree=r[2]) for r in rows]
+
+
+def update_interval_description(conn, record_id, text, word_count):
+    _x(conn, "UPDATE interval_descriptions SET text=%s, word_count=%s WHERE id=%s", (text, word_count, record_id))
+    conn.commit()
 
 
 def save_round_summary(conn, ai, kind, run_n, text):
@@ -581,29 +598,48 @@ def delete_resource_batch(conn, resource, item_ids, active_jobs=()):
 
 def reset_memory(conn, target="all"):
     """
-    Clears round summaries and resets learned libraries to empty for specified target ('A', 'B', or 'all').
-    Leaves runs (practice and fight history) intact!
+    Clears all four new memory buckets (Task/Fight for A/B) and summaries.
+    Removes old library data (moves, chains).
     """
-    reset_libs = 0
-
     if target in ("A", "B"):
         _x(conn, "DELETE FROM round_summaries WHERE ai=%s", (target,))
         _x(conn, "DELETE FROM interval_descriptions WHERE fighter=%s", (target,))
         _x(conn, "DELETE FROM move_history WHERE fighter=%s", (target,))
-        save_library(conn, target, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
-        reset_libs = 1
+        _x(conn, "DELETE FROM library WHERE ai=%s", (target,))
     elif target == "all":
         _x(conn, "DELETE FROM round_summaries")
         _x(conn, "DELETE FROM interval_descriptions")
         _x(conn, "DELETE FROM move_history")
-        for a in ("A", "B"):
-            save_library(conn, a, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
-        reset_libs = 2
+        _x(conn, "DELETE FROM library")
     else:
         return dict(ok=False, error="Target must be 'A', 'B', or 'all'")
 
     conn.commit()
-    return dict(ok=True, reset_libraries=reset_libs, target=target)
+    return dict(ok=True, target=target)
+
+
+def one_time_migration(conn):
+    """One-time reset of the memory system to the new schema."""
+    # We check if a marker exists
+    marker = get_setting(conn, "memory_migration_v2")
+    if marker == "done":
+        return
+
+    # Delete old systems
+    _x(conn, "DELETE FROM library")
+    _x(conn, "DELETE FROM interval_descriptions")
+    _x(conn, "DELETE FROM round_summaries")
+    _x(conn, "DELETE FROM move_history")
+    
+    # Add columns if they don't exist (for safety if table already exists)
+    try:
+        _x(conn, "ALTER TABLE interval_descriptions ADD COLUMN pre_tree TEXT")
+        _x(conn, "ALTER TABLE interval_descriptions ADD COLUMN post_tree TEXT")
+    except:
+        pass # Already exists or sqlite column error (handled by CREATE TABLE IF NOT EXISTS in init)
+
+    set_setting(conn, "memory_migration_v2", "done")
+    conn.commit()
 
 
 def set_setting(conn, key, val):

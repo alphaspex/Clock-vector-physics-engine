@@ -404,16 +404,33 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
 
                         <p
                           style={{
-                            margin: 0,
+                            margin: '0 0 10px 0',
                             fontSize: 12,
-                            color: '#ccc',
+                            color: '#e4e4e7',
                             lineHeight: 1.5,
-                            fontFamily: 'monospace',
+                            fontFamily: 'ui-monospace, monospace',
                             whiteSpace: 'pre-wrap',
                           }}
                         >
-                          {item.text}
+                          {item.text || 'Awaiting description...'}
                         </p>
+
+                        {(item.pre_tree || item.post_tree) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10, borderTop: '1px solid rgba(255, 255, 255, 0.05)', paddingTop: 10 }}>
+                            <div>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: '#888', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Pre-Interval Pose</span>
+                              <pre style={{ margin: 0, fontSize: 10, color: '#aaa', background: 'rgba(0,0,0,0.2)', padding: 6, borderRadius: 4, maxHeight: 120, overflowY: 'auto' }}>
+                                {item.pre_tree || 'N/A'}
+                              </pre>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: '#888', textTransform: 'uppercase', marginBottom: 4, display: 'block' }}>Post-Interval Pose</span>
+                              <pre style={{ margin: 0, fontSize: 10, color: '#aaa', background: 'rgba(0,0,0,0.2)', padding: 6, borderRadius: 4, maxHeight: 120, overflowY: 'auto' }}>
+                                {item.post_tree || 'N/A'}
+                              </pre>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

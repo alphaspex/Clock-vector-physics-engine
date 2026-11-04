@@ -101,6 +101,22 @@ export default function LauncherPanel({
   const [practiceInterval, setPracticeInterval] = useState(3);
   const [practiceDuration, setPracticeDuration] = useState(3.0);
 
+  const [practiceTask, setPracticeTask] = useState('Stand and keep standing');
+  const [customTask, setCustomTask] = useState('');
+
+  const PRACTICE_TASKS = [
+    'Stand and keep standing',
+    'Recover from the ground',
+    'Keep the head protected',
+    'Plant both fists',
+    'Maintain the current posture',
+    'Move forward',
+    'Move backward',
+    'Turn left',
+    'Turn right',
+    'Custom task',
+  ];
+
   const [presetA] = useState<ModelProvider>('baseten');
   const [presetB] = useState<ModelProvider>('baseten');
   const [effortA, setEffortA] = useState<ReasoningMode>('minimal');
@@ -108,7 +124,7 @@ export default function LauncherPanel({
   const [fightInterval, setFightInterval] = useState(3);
   const [fightDuration, setFightDuration] = useState(1.0);
 
-  const canLaunch = backendOnline && !busy && adminToken.trim().length > 0;
+  const canLaunch = backendOnline && !busy && adminToken.trim().length > 0 && (practiceTask !== 'Custom task' || customTask.trim().length > 0);
 
   const submitPractice = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -119,6 +135,7 @@ export default function LauncherPanel({
         thinkingIntervalSeconds: practiceInterval,
         reasoning: practiceEffort,
         durationMinutes: practiceDuration,
+        taskText: practiceTask === 'Custom task' ? customTask : practiceTask,
       },
       adminToken.trim(),
     );
@@ -210,6 +227,29 @@ export default function LauncherPanel({
               onChange={setPracticeEffort}
             />
           </div>
+
+          <div className="field">
+            <span className="field__label">Practice Task</span>
+            <span className="select-wrap">
+              <select value={practiceTask} onChange={(event) => setPracticeTask(event.target.value)}>
+                {PRACTICE_TASKS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" />
+            </span>
+          </div>
+
+          {practiceTask === 'Custom task' && (
+            <div className="field">
+              <span className="field__label">Custom Task Description</span>
+              <input
+                className="text-input"
+                value={customTask}
+                onChange={(e) => setCustomTask(e.target.value)}
+                placeholder="Enter your own objective..."
+                required
+              />
+            </div>
+          )}
 
           <ProviderModelSelector label="Practice" />
 
@@ -304,8 +344,8 @@ export default function LauncherPanel({
             <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', color: '#60a5fa' }}>
               LIVE THINKING ({activeThinking.fighter}) · INTERVAL {activeThinking.interval_index ?? activeThinking.frame ?? 1}
             </span>
-            <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: activeThinking.valid_20_words ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)', color: activeThinking.valid_20_words ? '#4ade80' : '#f87171' }}>
-              {activeThinking.wordCount ?? 20} words {activeThinking.valid_20_words ? '(exact 20)' : ''}
+            <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: (activeThinking.wordCount && activeThinking.wordCount >= 15 && activeThinking.wordCount <= 30) ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)', color: (activeThinking.wordCount && activeThinking.wordCount >= 15 && activeThinking.wordCount <= 30) ? '#4ade80' : '#f87171' }}>
+              {activeThinking.wordCount ?? 0} words (Target: 15-30)
             </span>
           </div>
           <p style={{ margin: 0, fontStyle: 'italic', fontSize: '0.8rem', lineHeight: '1.4', color: '#e2e8f0' }}>

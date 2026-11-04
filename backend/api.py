@@ -211,7 +211,7 @@ def handle(method, path, body, token, ctx):
             dm, secs = _duration(body, DEFAULT_PRACTICE_MINUTES)
             if dm is None:
                 return 400, dict(error=f"duration_minutes must be between {MIN_DURATION_MINUTES} and {MAX_DURATION_MINUTES} minutes")
-            jid = ctx["start"]("practice", dict(ai=body["ai"], preset=p, interval=iv, effort=e, duration_minutes=dm, seconds=secs))
+            jid = ctx["start"]("practice", dict(ai=body["ai"], preset=p, interval=iv, effort=e, duration_minutes=dm, seconds=secs, task_text=body.get("task_text", "Stand and keep standing")))
             return 202, dict(job=jid)
 
         ps = [body.get("presetA", "meta_contrib"), body.get("presetB", "meta_contrib")]

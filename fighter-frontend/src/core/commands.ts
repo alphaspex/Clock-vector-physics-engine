@@ -17,6 +17,7 @@ export interface PracticeCommand {
   thinkingIntervalSeconds: number;
   reasoning: ReasoningMode;
   durationMinutes: number;
+  taskText: string;
 }
 
 export interface FighterCommand {
@@ -91,6 +92,8 @@ export interface ThinkingItem {
   interval_index?: number;
   decision?: number;
   valid_20_words?: boolean;
+  pre_tree?: string;
+  post_tree?: string;
 }
 
 export interface ActivityEvent {

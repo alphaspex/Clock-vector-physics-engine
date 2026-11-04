@@ -3,7 +3,7 @@ Never shows health numbers.
 """
 import math
 import numpy as np
-from config import ARENA_R
+from config import ARENA_R, DT, H_DIR_WORDS, V_DIR_WORDS, DIST_THRESHOLDS, DIST_WORDS
 from geometry import torso_frame
 
 # ---- OFFICIAL 42 POSITION VOCABULARY VALUES ----
@@ -53,21 +53,12 @@ V_DIR_WORDS = {
     -90: "STRAIGHT DOWN",
 }
 
-# 5 Distance values (measured after subtracting chest ball radius 0.092m)
-def get_distance_band(pos_dist):
-    if pos_dist <= 0.10:
-        return "VERY-CLOSE"
-    elif pos_dist <= 0.25:
-        return "CLOSE"
-    elif pos_dist <= 0.45:
-        return "MID"
-    elif pos_dist <= 0.70:
-        return "FAR"
-    else:
-        return "VERY-FAR"
-
-
-CHEST_BALL_RADIUS = 0.092
+# 5 Distance values (measured directly from CHEST CENTER)
+def get_distance_band(center_dist):
+    for i, threshold in enumerate(DIST_THRESHOLDS):
+        if center_dist <= threshold:
+            return DIST_WORDS[i]
+    return DIST_WORDS[-1]
 
 
 def round_angle_15(angle):
@@ -104,12 +95,11 @@ def translate_3d_position(dx, dy, dz, is_grounded=False):
     (or GROUND + HORIZONTAL_DIRECTION + VERTICAL_DIRECTION)
     """
     center_dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-    pos_dist = max(0.0, center_dist - CHEST_BALL_RADIUS)
-
+    
     if is_grounded:
         dist_word = "GROUND"
     else:
-        dist_word = get_distance_band(pos_dist)
+        dist_word = get_distance_band(center_dist)
 
     h_word, v_word, v_rounded = translate_direction_words(dx, dy, dz)
     if v_rounded in (90, -90):
@@ -236,10 +226,11 @@ def _format_touch_events(events, since, f_char, part_name):
     return "; ".join(evs) if evs else "NONE"
 
 
-def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim_time):
+def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim_time, positions_only=False):
     """
-    Builds the official fighter body tree (Section 6).
+    Builds the official fighter body tree.
     All positions are measured relative to CHEST CENTER as origin in local (RIGHT, UP, FRONT) frame.
+    positions_only: if True, omits status, contacts, and touch events (for memory).
     """
     i = f * spec.n
     ix = spec.idx
@@ -267,95 +258,131 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         lid = f * nl + lidx[j_name]
         return "INTACT" if lalive[lid] else "DESTROYED"
 
-    tree = [
-        "MY FIGHTER",
-        f"FRAME: {frame}",
-        f"SIMULATION TIME: {sim_time:.1f}s",
-        "",
-        "CHEST",
-        f"  STATUS: {ball_status('chest')}",
-        "  POSITION: ORIGIN",
-        f"  CURRENT CONTACTS: {_get_current_contacts('chest', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'chest')}",
-        "",
-        "NECK",
-        "",
-        "HEAD",
-        f"  STATUS: {ball_status('head')}",
-        f"  POSITION: {rel_pos('head')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('head', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'head')}",
-        "",
-        "RIGHT_ARM",
-        "",
-        "NECK_RIGHT_JOINT",
-        f"  STATUS: {joint_status('NECK_RIGHT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('NECK_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['NECK_RIGHT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_RIGHT_JOINT')}",
-        "",
-        "RIGHT_SHOULDER",
-        f"  STATUS: {ball_status('shR')}",
-        f"  POSITION: {rel_pos('shR')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('shR', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shR')}",
-        "",
-        "SHOULDER_RIGHT_JOINT",
-        f"  STATUS: {joint_status('SHOULDER_RIGHT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('SHOULDER_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['SHOULDER_RIGHT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_RIGHT_JOINT')}",
-        "",
-        "RIGHT_ELBOW",
-        f"  STATUS: {ball_status('elR')}",
-        f"  POSITION: {rel_pos('elR')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('elR', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elR')}",
-        "",
-        "ELBOW_RIGHT_JOINT",
-        f"  STATUS: {joint_status('ELBOW_RIGHT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('ELBOW_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['ELBOW_RIGHT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_RIGHT_JOINT')}",
-        "",
-        "RIGHT_FIST",
-        f"  STATUS: {ball_status('fistR')}",
-        f"  POSITION: {rel_pos('fistR')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('fistR', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistR')}",
-        "",
-        "LEFT_ARM",
-        "",
-        "NECK_LEFT_JOINT",
-        f"  STATUS: {joint_status('NECK_LEFT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('NECK_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['NECK_LEFT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_LEFT_JOINT')}",
-        "",
-        "LEFT_SHOULDER",
-        f"  STATUS: {ball_status('shL')}",
-        f"  POSITION: {rel_pos('shL')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('shL', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shL')}",
-        "",
-        "SHOULDER_LEFT_JOINT",
-        f"  STATUS: {joint_status('SHOULDER_LEFT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('SHOULDER_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['SHOULDER_LEFT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_LEFT_JOINT')}",
-        "",
-        "LEFT_ELBOW",
-        f"  STATUS: {ball_status('elL')}",
-        f"  POSITION: {rel_pos('elL')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('elL', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elL')}",
-        "",
-        "ELBOW_LEFT_JOINT",
-        f"  STATUS: {joint_status('ELBOW_LEFT_JOINT')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('ELBOW_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['ELBOW_LEFT_JOINT'])}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_LEFT_JOINT')}",
-        "",
-        "LEFT_FIST",
-        f"  STATUS: {ball_status('fistL')}",
-        f"  POSITION: {rel_pos('fistL')}",
-        f"  CURRENT CONTACTS: {_get_current_contacts('fistL', p, spec, palive, lalive, f)}",
-        f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistL')}",
-    ]
+    tree = ["MY FIGHTER"]
+    if not positions_only:
+        tree += [f"FRAME: {frame}", f"SIMULATION TIME: {sim_time:.1f}s", ""]
+    
+    tree += ["CHEST"]
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('chest')}")
+    tree.append("  POSITION: ORIGIN")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('chest', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'chest')}")
+    tree.append("")
+    
+    tree.append("NECK")
+    tree.append("")
+    
+    tree.append("HEAD")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('head')}")
+    tree.append(f"  POSITION: {rel_pos('head')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('head', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'head')}")
+    tree.append("")
+    
+    tree.append("RIGHT_ARM")
+    tree.append("")
+    
+    tree.append("NECK_RIGHT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('NECK_RIGHT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('NECK_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['NECK_RIGHT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_RIGHT_JOINT')}")
+    tree.append("")
+    
+    tree.append("RIGHT_SHOULDER")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('shR')}")
+    tree.append(f"  POSITION: {rel_pos('shR')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('shR', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shR')}")
+    tree.append("")
+    
+    tree.append("SHOULDER_RIGHT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('SHOULDER_RIGHT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('SHOULDER_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['SHOULDER_RIGHT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_RIGHT_JOINT')}")
+    tree.append("")
+    
+    tree.append("RIGHT_ELBOW")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('elR')}")
+    tree.append(f"  POSITION: {rel_pos('elR')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('elR', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elR')}")
+    tree.append("")
+    
+    tree.append("ELBOW_RIGHT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('ELBOW_RIGHT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('ELBOW_RIGHT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['ELBOW_RIGHT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_RIGHT_JOINT')}")
+    tree.append("")
+    
+    tree.append("RIGHT_FIST")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('fistR')}")
+    tree.append(f"  POSITION: {rel_pos('fistR')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('fistR', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistR')}")
+    tree.append("")
+    
+    tree.append("LEFT_ARM")
+    tree.append("")
+    
+    tree.append("NECK_LEFT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('NECK_LEFT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('NECK_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['NECK_LEFT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_LEFT_JOINT')}")
+    tree.append("")
+    
+    tree.append("LEFT_SHOULDER")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('shL')}")
+    tree.append(f"  POSITION: {rel_pos('shL')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('shL', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shL')}")
+    tree.append("")
+    
+    tree.append("SHOULDER_LEFT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('SHOULDER_LEFT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('SHOULDER_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['SHOULDER_LEFT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_LEFT_JOINT')}")
+    tree.append("")
+    
+    tree.append("LEFT_ELBOW")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('elL')}")
+    tree.append(f"  POSITION: {rel_pos('elL')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('elL', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elL')}")
+    tree.append("")
+    
+    tree.append("ELBOW_LEFT_JOINT")
+    if not positions_only:
+        tree.append(f"  STATUS: {joint_status('ELBOW_LEFT_JOINT')}")
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('ELBOW_LEFT_JOINT', p, spec, palive, lalive, f, is_link=True, lid=f*nl+lidx['ELBOW_LEFT_JOINT'])}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_LEFT_JOINT')}")
+    tree.append("")
+    
+    tree.append("LEFT_FIST")
+    if not positions_only:
+        tree.append(f"  STATUS: {ball_status('fistL')}")
+    tree.append(f"  POSITION: {rel_pos('fistL')}")
+    if not positions_only:
+        tree.append(f"  CURRENT CONTACTS: {_get_current_contacts('fistL', p, spec, palive, lalive, f)}")
+        tree.append(f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistL')}")
 
     return "\n".join(tree)
 

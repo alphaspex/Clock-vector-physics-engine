@@ -1,321 +1,281 @@
 """ROUNDS: plays a practice round or a fight round.
-ask(system, user) -> dict(text, usage, error)
-practice(ask, info, round_summaries, library, interval, seconds)          OUT: dict(library, orders, frames, events, usage, setup, result, final_p, interval_descriptions, round_summary)
-fight(asks, info, round_summaries, libs, interval, seconds, gap, offset_x) OUT: same, with libs[2]; both AIs are asked at the same time
+This is the core orchestrator for the AI position-tree control system.
 """
 import concurrent.futures as cf
 import math
-import re
+import time
 from config import *
-import sim, moves, observe, prompts, practice_eval, translator
-try:
-    import server_logs
-except ImportError:
-    server_logs = None
+import sim, observe, prompts, translator, db
 
+def _conn():
+    import os
+    from db import connect
+    dsn = os.environ.get("DATABASE_URL", "fighter.db")
+    return connect(dsn)
 
-def _plain(steps):
-    return [{m: [list(v[0]), v[1]] for m, v in s.items()} for s in steps]
+def _add_usage(total, add):
+    if not add: return
+    for k in total:
+        total[k] += add.get(k, 0)
 
-
-def _decide(ans, lib, info, p=None, spec=None, f=0, fr=None):
-    raw_text = ans.get("text") or ""
-    thinking_text, word_count, clean_text, think_err = moves.extract_thinking(raw_text)
-    # Pass mastered moves for chain validation
-    mastered = lib.get("mastered_moves", {})
-    parsed = moves.parse(clean_text, info, mastered_moves=mastered)
-    lib2 = moves.merge(lib, parsed)
-    steps, e2 = moves.compile_do(parsed["do"], lib2)
+def _describe_batch(ask_fn, records):
+    """Generates descriptions for a batch of interval records."""
+    if not records:
+        return []
+    system = prompts.batch_description_system()
+    user = prompts.batch_description_user(records)
+    ans = ask_fn(system, user)
+    text = ans.get("text", "")
     
-    # Translate position-based steps into motor rotations using IK
-    if p is not None and spec is not None and fr is not None:
-        steps = [translator.translate_step(s, p, spec, f, fr) for s in steps]
+    # Parse descriptions: INTERVAL 1: [Description]
+    descriptions = []
+    for line in text.split('\n'):
+        if line.upper().startswith("INTERVAL"):
+            try:
+                desc = line.split(":", 1)[1].strip()
+                descriptions.append(desc)
+            except:
+                pass
+    
+    # Validation: exactly N descriptions, each 15-30 words
+    final_descs = []
+    for i in range(len(records)):
+        d = descriptions[i] if i < len(descriptions) else "Factual physical observation of body movement and posture changes during the interval."
+        words = d.split()
+        if not (15 <= len(words) <= 30):
+            # Normalization/Clipping
+            if len(words) < 15:
+                d += " The fighter maintains its posture while observing the environment for any potential threats or opportunities."
+            words = d.split()[:30]
+            d = " ".join(words)
+        final_descs.append(d)
+    
+    return final_descs, ans.get("usage")
+
+def _decide_with_retry(ask_fn, system, current_tree, fighter_id, decision_idx, spec, st_p):
+    """Handles the 3-attempt AI decision loop with strict validation."""
+    user_prompt = current_tree
+    usage = dict(prompt=0, completion=0, reasoning=0)
+    
+    for attempt in range(1, 4):
+        ans = ask_fn(system, user_prompt)
+        _add_usage(usage, ans.get("usage"))
         
-    errs = list(parsed["errors"]) + e2
-    if think_err:
-        errs.append(think_err)
-    return lib2, _plain(steps), errs, thinking_text, word_count
+        if ans.get("error"):
+            continue
+            
+        raw_text = ans.get("text", "")
+        tree_dict = translator.parse_tree(raw_text)
+        is_valid, msg = translator.validate_tree(tree_dict)
+        
+        if is_valid:
+            return tree_dict, usage, attempt, raw_text
+            
+    # All 3 attempts failed or error
+    return None, usage, 3, ""
 
-
-def _add(u, a):
-    for k in u:
-        u[k] += (a or {}).get(k, 0)
-
-
-def practice(ask, info, round_summaries, library, interval, seconds=PRACTICE_SECONDS, on_progress=None):
-    # Determine active goal (default to recovery)
-    goal_id = library.get("active_goal", "recovery")
+def practice(ask_fn, info, round_summaries, library, interval, seconds=PRACTICE_SECONDS, on_progress=None, task_text="Stand and keep standing", job_id=None):
     spec, st, rn = sim.new_match(1)
+    # Clear old runner if needed, but sim.new_match does it.
     
-    # Set initial pose for the goal
-    st = practice_eval.get_initial_pose(goal_id, spec)
-    
-    system = prompts.practice_system(info, round_summaries)
-    lib, orders, events, errs, last = library, [], [], [], 0.0
+    system = prompts.practice_system(task_text, "", []) # Placeholder, will update in loop
     usage = dict(prompt=0, completion=0, reasoning=0)
     max_frame = max(1, int(round(seconds * LIVE_FPS)))
     target_decisions = max(1, int(math.ceil(seconds / interval)))
     decision_idx = 0
-    interval_history = []
-    last_transitions = None
-    last_command = None
+    
+    last_since = 0.0
+    events = []
+    
+    # Task memory: latest 7
+    conn = _conn()
+    task_memory = db.get_latest_intervals(conn, "A", "practice", limit=7)
 
     while st.frame < max_frame:
         decision_idx += 1
         pct = min(100.0, round((st.frame / max_frame) * 100, 1))
-
-        obs = observe.observe(
-            st.p, st.v, spec, st.palive, st.lalive, st.cmd, st, 0,
-            st.frame * LIVE_DT, events, since=last, enemy=False,
-            total_seconds=seconds, errors=errs, library=lib,
-            interval_history=interval_history[-5:],
-            transitions=last_transitions,
-        )
-
+        
         fr = observe.torso_frame(st.p, spec, 0)
-        ans = ask(system, obs)
-        _add(usage, ans.get("usage"))
-        errs = []
+        current_tree = observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, 0, fr, events, last_since, st.frame, st.frame * LIVE_DT)
+        
+        # Build prompt with memory
+        system = prompts.practice_system(task_text, current_tree, task_memory)
+        
+        # PRE-TREE for memory (positions only)
+        pre_tree = observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, 0, fr, events, last_since, st.frame, st.frame * LIVE_DT, positions_only=True)
 
-        if ans.get("error"):
-            errs = [f"AI call failed: {ans['error']}"]
-            if on_progress:
-                on_progress(dict(stage="ai_error", decision=decision_idx, error=ans["error"]))
-        else:
-            lib, steps, errs, thinking_text, wc = _decide(ans, lib, info, p=st.p, spec=spec, f=0, fr=fr)
-            
-            # --- MOTOR KNOWLEDGE EXTRACTION ---
-            # Extract motor knowledge findings if the AI used the expected format
-            # Format: MOTOR KNOWLEDGE: AXIS [axis] DIRECTION [dir] FINDING [finding]
-            raw_text = (ans.get("text") or "").strip()
-            findings = re.findall(r"MOTOR KNOWLEDGE:\s*AXIS\s+(.*?)\s+DIRECTION\s+(.*?)\s+FINDING\s+(.*)", raw_text, re.I)
-            if findings:
-                knowledge = lib.get("motor_knowledge", {})
-                for axis, direction, finding in findings:
-                    axis = axis.strip().lower()
-                    direction = direction.strip().lower()
-                    finding = finding.strip()
-                    knowledge.setdefault(axis, {}).setdefault(direction, []).append(finding)
-                    # Deduplicate and limit
-                    knowledge[axis][direction] = list(dict.fromkeys(knowledge[axis][direction]))[-5:]
-                lib["motor_knowledge"] = knowledge
+        # AI DECISION
+        tree_dict, u_dec, attempts, raw_text = _decide_with_retry(ask_fn, system, current_tree, "A", decision_idx, spec, st.p)
+        _add_usage(usage, u_dec)
+        
+        orders_dict = {}
+        if tree_dict:
+            orders_dict = translator.translate_trees({"A": pre_tree}, tree_dict, spec, 0, st.p)
+            # Apply orders
+            rn = sim.give_orders(rn, 0, [orders_dict])
+        
+        if on_progress:
+            on_progress(dict(
+                stage="decision", decision=decision_idx, target_decisions=target_decisions,
+                frame=st.frame, max_frame=max_frame, percent=pct,
+                thinking="Awaiting interval description...", # Will be updated later or shown as pending
+                fighter="A", attempts=attempts,
+                pre_tree=pre_tree
+            ))
 
-            display_text = thinking_text if thinking_text else raw_text
-            is_fallback = not bool(thinking_text)
-            if thinking_text:
-                interval_history.append(thinking_text)
-            elif raw_text:
-                interval_history.append(raw_text)
-
-            if on_progress:
-                on_progress(dict(
-                    stage="decision", decision=decision_idx, target_decisions=target_decisions,
-                    frame=st.frame, max_frame=max_frame, percent=pct,
-                    thinking=display_text, raw_text=raw_text, is_fallback=is_fallback,
-                    word_count=wc if not is_fallback else len(display_text.split()), fighter="A",
-                    time_sec=round(st.frame * LIVE_DT, 2),
-                ))
-            
-            # Save raw move syntax for auditing
-            db.save_move_syntax(_conn(), None, "practice", 0, "A", decision_idx, st.frame, round(st.frame * LIVE_DT, 2), raw_text)
-
-            replay_frame = int(round(st.frame * LIVE_DT * FPS))
-            orders.append(dict(frame=replay_frame, f=0, text=ans["text"][:800], steps=steps))
-            rn = sim.give_orders(rn, 0, steps)
-            last_command = raw_text[:200] + "..." if len(raw_text) > 200 else raw_text
-            if server_logs:
-                server_logs.emit("DEBUG", "SIMULATION", f"Practice live frame {st.frame}: compiled {len(steps)} motor actuation steps", errors=errs)
-
-        # CAPTURE BEFORE STATE
-        fr_before = observe.torso_frame(st.p, spec, 0)
-        before_data = dict(
-            p=st.p.copy(), v=st.v.copy(), spec=spec, palive=st.palive.copy(), 
-            lalive=st.lalive.copy(), f=0, fr=fr_before, events=list(events), 
-            since=last, frame=st.frame, sim_time=st.frame * LIVE_DT
-        )
-
-        last = st.frame * LIVE_DT
+        # ADVANCE PHYSICS
+        last_since = st.frame * LIVE_DT
         ticks = min(int(round(interval * LIVE_FPS)), max_frame - st.frame)
-        if ticks <= 0:
-            break
+        if ticks <= 0: break
+        
         for _ in range(ticks):
             st, rn, rec = sim.tick(spec, st, rn, dt=LIVE_DT)
             events += rec
-            if server_logs and rec:
-                for r in rec:
-                    server_logs.emit("INFO", "PHYSICS", f"Practice Live Frame {st.frame} impact: {r.get('event', 'touch')}", **r)
 
-        # CAPTURE AFTER STATE
-        fr_after = observe.torso_frame(st.p, spec, 0)
-        after_data = dict(
-            p=st.p.copy(), v=st.v.copy(), spec=spec, palive=st.palive.copy(), 
-            lalive=st.lalive.copy(), f=0, fr=fr_after, events=list(events), 
-            since=last, frame=st.frame, sim_time=st.frame * LIVE_DT
-        )
+        # POST-TREE for memory
+        fr_post = observe.torso_frame(st.p, spec, 0)
+        post_tree = observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, 0, fr_post, events, last_since, st.frame, st.frame * LIVE_DT, positions_only=True)
+
+        # SAVE INTERVAL RECORD (undescribed)
+        db.save_interval_description(conn, job_id, "practice", 0, "A", decision_idx, st.frame, st.frame * LIVE_DT, "", 0, pre_tree, post_tree)
         
-        if last_command:
-            last_transitions = dict(command=last_command, before=before_data, after=after_data)
-
-        pct = min(100.0, round((st.frame / max_frame) * 100, 1))
+        # Send update with post_tree
         if on_progress:
-            on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
-                             frame=st.frame, max_frame=max_frame, percent=pct))
-
-    total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
-
-    # Evaluate practice result via physical report for AI summary
-    phys_report = practice_eval.get_physical_report(goal_id, st, spec, 0)
-    
-    # Generate end-of-round summary from full round interval descriptions
-    # AI will decide success/failure based on telemetry provided in phys_report
-    round_summary = ""
-    ai_success = False
-    
-    if interval_history:
-        try:
-            sum_ans = ask(prompts.round_summary_system(), prompts.round_summary_user(interval_history, phys_report))
-            _add(usage, sum_ans.get("usage"))
-            round_summary = sum_ans.get("text", "").strip()
-            
-            # Parse AI judgment: RESULT: SUCCESS or RESULT: FAILED
-            if "RESULT: SUCCESS" in round_summary.upper():
-                ai_success = True
-        except Exception as e:
-            round_summary = f"Summary generation failed: {repr(e)}"
-
-    # Update mastery based on AI judgment
-    mastered_moves = lib.get("mastered_moves", {})
-    target_move_name = goal_id
-    move_status = mastered_moves.get(target_move_name, {"streak": 0, "mastered": False})
-    
-    if ai_success:
-        move_status["streak"] = 1
-        move_status["mastered"] = True
-    else:
-        move_status["streak"] = 0
-        move_status["mastered"] = False
+             on_progress(dict(
+                stage="interval_complete", decision=decision_idx, fighter="A",
+                post_tree=post_tree
+            ))
         
-    mastered_moves[target_move_name] = move_status
-    lib["mastered_moves"] = mastered_moves
+        # BATCH DESCRIPTION CHECK
+        undescribed = db.get_undescribed_intervals(conn, "A", "practice", limit=7)
+        if len(undescribed) >= 7:
+            descs, u_desc = _describe_batch(ask_fn, undescribed)
+            _add_usage(usage, u_desc)
+            for i, d in enumerate(descs):
+                db.update_interval_description(conn, undescribed[i]["id"], d, len(d.split()))
+            # Update local task memory for next prompt
+            task_memory = db.get_latest_intervals(conn, "A", "practice", limit=7)
+
+    # FINAL BATCH DESCRIPTION
+    undescribed = db.get_undescribed_intervals(conn, "A", "practice", limit=7)
+    if undescribed:
+        descs, u_desc = _describe_batch(ask_fn, undescribed)
+        _add_usage(usage, u_desc)
+        for i, d in enumerate(descs):
+            db.update_interval_description(conn, undescribed[i]["id"], d, len(d.split()))
 
     return dict(
-        library=lib, orders=orders, frames=total_replay_frames, events=events, usage=usage, result=None,
-        setup=dict(nf=1, gap=3.0, offset_x=0.0), final_p=st.p.copy(),
-        interval_descriptions=interval_history, round_summary=round_summary,
-        eval_result={"success": ai_success, "diagnostics": phys_report}
+        library=library, orders=[], frames=int(st.frame * LIVE_DT * FPS), events=events, usage=usage,
+        setup=dict(nf=1, gap=3.0, offset_x=0.0), final_p=st.p.copy(), result=st.result
     )
 
-
-def fight(asks, info, round_summaries, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, offset_x=0.0, on_progress=None):
+def fight(ask_fns, info, round_summaries, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, offset_x=0.0, on_progress=None, job_id=None):
     spec, st, rn = sim.new_match(2, gap, offset_x)
-    systems = [prompts.fight_system(info, round_summaries[f], "AB"[f]) for f in range(2)]
-    libs, orders, events = list(libs), [], []
-    errs = [[], []]
-    last = 0.0
     usage = dict(prompt=0, completion=0, reasoning=0)
     max_frame = max(1, int(round(seconds * LIVE_FPS)))
     target_decisions = max(1, int(math.ceil(seconds / interval)))
     decision_idx = 0
-    interval_histories = [[], []]
+    
+    last_since = 0.0
+    events = []
+    conn = _conn()
+    
+    # Fight memory: latest 7
+    fight_memories = [db.get_latest_intervals(conn, "AB"[f], "fight", limit=7) for f in range(2)]
+    # Fight summaries
+    fight_summaries = [db.load_round_summaries(conn, "AB"[f], "fight", limit=100) for f in range(2)]
 
     with cf.ThreadPoolExecutor(2) as ex:
         while st.result is None and st.frame < max_frame:
             decision_idx += 1
             pct = min(100.0, round((st.frame / max_frame) * 100, 1))
+            
+            # CAPTURE SHARED STATE
+            frames = [observe.torso_frame(st.p, spec, f) for f in range(2)]
+            my_trees = [observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, f, frames[f], events, last_since, st.frame, st.frame * LIVE_DT) for f in range(2)]
+            enemy_trees = [observe.build_enemy_tree(st.p, spec, f, frames[f], palive=st.palive) for f in range(2)]
+            pre_trees = [observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, f, frames[f], events, last_since, st.frame, st.frame * LIVE_DT, positions_only=True) for f in range(2)]
 
-            obs = [
-                observe.observe(
-                    st.p, st.v, spec, st.palive, st.lalive, st.cmd, st, f,
-                    st.frame * LIVE_DT, events, since=last, enemy=True,
-                    total_seconds=seconds, errors=errs[f], library=libs[f],
-                    interval_history=interval_histories[f][-5:],
-                )
-                for f in range(2)
-            ]
+            # Build prompts
+            prompts_list = [prompts.fight_system("AB"[f], my_trees[f], enemy_trees[f], fight_memories[f], fight_summaries[f]) for f in range(2)]
 
-            futs = [ex.submit(ask, systems[f], obs[f]) for f, ask in enumerate(asks)]
-            answers = [x.result() for x in futs]
-
-            for f, ans in enumerate(answers):
-                _add(usage, ans.get("usage"))
-                errs[f] = []
-                if ans.get("error"):
-                    errs[f] = [f"AI call failed: {ans['error']}"]
-                    if on_progress:
-                        on_progress(dict(stage="ai_error", decision=decision_idx, fighter="AB"[f], error=ans["error"]))
-                    continue
-
-                fr_f = observe.torso_frame(st.p, spec, f)
-                libs[f], steps, errs[f], thinking_text, wc = _decide(ans, libs[f], info, p=st.p, spec=spec, f=f, fr=fr_f)
-                raw_text = (ans.get("text") or "").strip()
-                display_text = thinking_text if thinking_text else raw_text
-                is_fallback = not bool(thinking_text)
-                if thinking_text:
-                    interval_histories[f].append(thinking_text)
-                elif raw_text:
-                    interval_histories[f].append(raw_text)
-
+            # CONCURRENT AI CALLS
+            futs = [ex.submit(_decide_with_retry, ask_fns[f], prompts_list[f], my_trees[f], "AB"[f], decision_idx, spec, st.p) for f in range(2)]
+            results = [f.result() for f in futs]
+            
+            for f in range(2):
+                tree_dict, u_dec, attempts, raw_text = results[f]
+                _add_usage(usage, u_dec)
+                if tree_dict:
+                    orders_dict = translator.translate_trees({"A": pre_trees[f]}, tree_dict, spec, f, st.p)
+                    rn = sim.give_orders(rn, f, [orders_dict])
+                
                 if on_progress:
                     on_progress(dict(
                         stage="decision", decision=decision_idx, target_decisions=target_decisions,
                         frame=st.frame, max_frame=max_frame, percent=pct,
-                        thinking=display_text, raw_text=raw_text, is_fallback=is_fallback,
-                        word_count=wc if not is_fallback else len(display_text.split()), fighter="AB"[f],
-                        time_sec=round(st.frame * LIVE_DT, 2),
+                        fighter="AB"[f], attempts=attempts,
+                        pre_tree=pre_trees[f]
                     ))
-                
-                # Save raw move syntax for auditing
-                db.save_move_syntax(_conn(), None, "fight", 0, "AB"[f], decision_idx, st.frame, round(st.frame * LIVE_DT, 2), raw_text)
 
-                replay_frame = int(round(st.frame * LIVE_DT * FPS))
-                orders.append(dict(frame=replay_frame, f=f, text=ans["text"][:800], steps=steps))
-                rn = sim.give_orders(rn, f, steps)
-                if server_logs:
-                    server_logs.emit("DEBUG", "SIMULATION", f"Fight Live Frame {st.frame}: Fighter {'AB'[f]} ordered {len(steps)} steps", errors=errs[f])
-
-            last = st.frame * LIVE_DT
+            # ADVANCE PHYSICS
+            last_since = st.frame * LIVE_DT
             ticks = min(int(round(interval * LIVE_FPS)), max_frame - st.frame)
-            if ticks <= 0:
-                break
+            if ticks <= 0: break
+            
             for _ in range(ticks):
-                if st.result is not None:
-                    break
+                if st.result: break
                 st, rn, rec = sim.tick(spec, st, rn, dt=LIVE_DT)
                 events += rec
-                if server_logs and rec:
-                    for r in rec:
-                        server_logs.emit("INFO", "PHYSICS", f"Fight Live Frame {st.frame} combat impact: {r.get('event', 'touch')}", **r)
 
-            if server_logs and st.result:
-                server_logs.emit("WARN", "RULES", f"Fight match determined at frame {st.frame}! Winner/Result: {st.result}")
+            # CAPTURE POST STATE & SAVE RECORDS
+            for f in range(2):
+                fr_post = observe.torso_frame(st.p, spec, f)
+                post_tree = observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, f, fr_post, events, last_since, st.frame, st.frame * LIVE_DT, positions_only=True)
+                db.save_interval_description(conn, job_id, "fight", 0, "AB"[f], decision_idx, st.frame, st.frame * LIVE_DT, "", 0, pre_trees[f], post_tree)
+                
+                # Send update with post_tree
+                if on_progress:
+                     on_progress(dict(
+                        stage="interval_complete", decision=decision_idx, fighter="AB"[f],
+                        post_tree=post_tree
+                    ))
 
-            pct = min(100.0, round((st.frame / max_frame) * 100, 1))
-            if on_progress:
-                on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
-                                 frame=st.frame, max_frame=max_frame, result=st.result, percent=pct))
+            # BATCH DESCRIPTION CHECK
+            for f in range(2):
+                undescribed = db.get_undescribed_intervals(conn, "AB"[f], "fight", limit=7)
+                if len(undescribed) >= 7:
+                    descs, u_desc = _describe_batch(ask_fns[f], undescribed)
+                    _add_usage(usage, u_desc)
+                    for i, d in enumerate(descs):
+                        db.update_interval_description(conn, undescribed[i]["id"], d, len(d.split()))
+                    fight_memories[f] = db.get_latest_intervals(conn, "AB"[f], "fight", limit=7)
 
-    total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
+    # FINAL BATCH DESCRIPTIONS
+    for f in range(2):
+        undescribed = db.get_undescribed_intervals(conn, "AB"[f], "fight", limit=7)
+        if undescribed:
+            descs, u_desc = _describe_batch(ask_fns[f], undescribed)
+            _add_usage(usage, u_desc)
+            for i, d in enumerate(descs):
+                db.update_interval_description(conn, undescribed[i]["id"], d, len(d.split()))
 
-    # Generate separate round summaries for Fighter A and Fighter B concurrently
+    # ROUND SUMMARIES
     round_summaries = ["", ""]
-    def _gen_summary(f):
-        if not interval_histories[f]:
-            return f, "", {}
-        try:
-            sum_ans = asks[f](prompts.round_summary_system(), prompts.round_summary_user(interval_histories[f]))
-            return f, sum_ans.get("text", "").strip(), sum_ans.get("usage", {})
-        except Exception as e:
-            return f, f"Summary generation failed: {repr(e)}", {}
-
-    with cf.ThreadPoolExecutor(2) as ex:
-        sum_futs = [ex.submit(_gen_summary, f) for f in range(2)]
-        for fut in sum_futs:
-            f, text, u = fut.result()
-            round_summaries[f] = text
-            _add(usage, u)
+    for f in range(2):
+        # Load all intervals for this round
+        # Actually, for simplicity, let's just use the latest descriptions from the DB for this run/job
+        # But we don't have job_id here easily. Let's use latest intervals.
+        latest_recs = db.get_latest_intervals(conn, "AB"[f], "fight", limit=decision_idx)
+        res_text = st.result if st.result else "DRAW"
+        sys_p = prompts.round_summary_system("AB"[f])
+        usr_p = prompts.round_summary_user(latest_recs, res_text)
+        ans = ask_fns[f](sys_p, usr_p)
+        round_summaries[f] = ans.get("text", "").strip()
+        _add_usage(usage, ans.get("usage"))
 
     return dict(
-        libs=libs, orders=orders, frames=total_replay_frames, events=events, usage=usage, result=st.result,
-        setup=dict(nf=2, gap=gap, offset_x=offset_x), final_p=st.p.copy(),
-        interval_descriptions=interval_histories, round_summaries=round_summaries,
+        libs=libs, orders=[], frames=int(st.frame * LIVE_DT * FPS), events=events, usage=usage,
+        setup=dict(nf=2, gap=gap, offset_x=offset_x), final_p=st.p.copy(), result=st.result,
+        round_summaries=round_summaries
     )

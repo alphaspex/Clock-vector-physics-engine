@@ -43,3 +43,63 @@ MAX_DURATION_MINUTES = 30.0    # 30 minutes maximum
 DEFAULT_PRACTICE_MINUTES = 3.0 # 180 seconds
 DEFAULT_FIGHT_MINUTES = 1.0    # 60 seconds
 
+# ---- 42-WORD POSITION VOCABULARY ----
+H_DIR_WORDS = {
+    0: "FRONT",
+    15: "FRONT SLIGHT RIGHT",
+    30: "FRONT RIGHT",
+    45: "FRONT DIAGONAL RIGHT",
+    60: "RIGHT DIAGONAL FRONT",
+    75: "RIGHT SLIGHT FRONT",
+    90: "RIGHT",
+    105: "RIGHT SLIGHT BACK",
+    120: "RIGHT DIAGONAL BACK",
+    135: "RIGHT BACK",
+    150: "BACK DIAGONAL RIGHT",
+    165: "BACK SLIGHT RIGHT",
+    180: "BACK",
+    195: "BACK SLIGHT LEFT",
+    210: "BACK DIAGONAL LEFT",
+    225: "BACK LEFT",
+    240: "LEFT DIAGONAL BACK",
+    255: "LEFT SLIGHT BACK",
+    270: "LEFT",
+    285: "LEFT SLIGHT FRONT",
+    300: "LEFT DIAGONAL FRONT",
+    315: "LEFT FRONT",
+    330: "FRONT DIAGONAL LEFT",
+    345: "FRONT SLIGHT LEFT",
+}
+
+V_DIR_WORDS = {
+    90: "STRAIGHT UP",
+    75: "NEAR UP",
+    60: "HIGH UP",
+    45: "DIAGONAL UP",
+    30: "UPPER",
+    15: "SLIGHT UPPER",
+    0: "LEVEL",
+    -15: "SLIGHT LOWER",
+    -30: "LOWER",
+    -45: "DIAGONAL DOWN",
+    -60: "LOW DOWN",
+    -75: "NEAR DOWN",
+    -90: "STRAIGHT DOWN",
+}
+
+# Distance bands measured directly from CHEST CENTER.
+# VERY-CLOSE: 0.00 - 0.10, CLOSE: 0.10 - 0.25, MID: 0.25 - 0.45, FAR: 0.45 - 0.70, VERY-FAR: > 0.70
+DIST_THRESHOLDS = [0.10, 0.25, 0.45, 0.70]
+DIST_WORDS = ["VERY-CLOSE", "CLOSE", "MID", "FAR", "VERY-FAR"]
+
+# Representative distances for decoding
+DIST_REPRESENTATIVE = {
+    "VERY-CLOSE": 0.05,
+    "CLOSE": 0.175,
+    "MID": 0.35,
+    "FAR": 0.575,
+    "VERY-FAR": 0.85, # Representative for VERY-FAR (will be checked for reachability)
+}
+
+CHEST_BALL_RADIUS = 0.092
+
