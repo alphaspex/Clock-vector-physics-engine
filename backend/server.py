@@ -300,8 +300,8 @@ def _run_fight(jid, p):
     ais = ("A", "B")
     asks = [_ask(p["presets"][f], p["efforts"][f], FIGHT_MAX_TOKENS, jid=jid) for f in range(2)]
     # Three-round memory rule: load latest 3 completed fight summaries separately for Fighter A and B
-    notes_per_fighter = [db.load_round_summaries(conn, a, "fight", limit=3) for a in ais]
-    r = rounds.fight(asks, INFO, notes_per_fighter, [db.load_library(conn, a) for a in ais],
+    summaries_per_fighter = [db.load_round_summaries(conn, a, "fight", limit=3) for a in ais]
+    r = rounds.fight(asks, INFO, summaries_per_fighter, [db.load_library(conn, a) for a in ais],
                      p["interval"], p.get("seconds", FIGHT_SECONDS), on_progress=on_progress)
 
     # Persistence stage
@@ -449,7 +449,6 @@ def _memory(ai):
     lib = db.load_library(conn, ai)
     return dict(
         ai=ai,
-        notes=db.load_notes(conn, ai),
         practice_summaries=db.load_round_summaries(conn, ai, "practice", limit=3),
         fight_summaries=db.load_round_summaries(conn, ai, "fight", limit=3),
         moves=sorted(lib.get("moves", {}).keys()),

@@ -1,7 +1,7 @@
 """ROUNDS: plays a practice round or a fight round.
 ask(system, user) -> dict(text, usage, error)
-practice(ask, info, notes, library, interval, seconds)          OUT: dict(library, orders, frames, events, usage, setup, result, final_p, interval_descriptions, round_summary)
-fight(asks, info, notes, libs, interval, seconds, gap, offset_x) OUT: same, with libs[2]; both AIs are asked at the same time
+practice(ask, info, round_summaries, library, interval, seconds)          OUT: dict(library, orders, frames, events, usage, setup, result, final_p, interval_descriptions, round_summary)
+fight(asks, info, round_summaries, libs, interval, seconds, gap, offset_x) OUT: same, with libs[2]; both AIs are asked at the same time
 """
 import concurrent.futures as cf
 import math
@@ -42,7 +42,7 @@ def _add(u, a):
         u[k] += (a or {}).get(k, 0)
 
 
-def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_progress=None):
+def practice(ask, info, round_summaries, library, interval, seconds=PRACTICE_SECONDS, on_progress=None):
     # Determine active goal (default to recovery)
     goal_id = library.get("active_goal", "recovery")
     spec, st, rn = sim.new_match(1)
@@ -50,7 +50,7 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
     # Set initial pose for the goal
     st = practice_eval.get_initial_pose(goal_id, spec)
     
-    system = prompts.practice_system(info, notes)
+    system = prompts.practice_system(info, round_summaries)
     lib, orders, events, errs, last = library, [], [], [], 0.0
     usage = dict(prompt=0, completion=0, reasoning=0)
     max_frame = max(1, int(round(seconds * LIVE_FPS)))
@@ -115,6 +115,9 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
                     word_count=wc if not is_fallback else len(display_text.split()), fighter="A",
                     time_sec=round(st.frame * LIVE_DT, 2),
                 ))
+            
+            # Save raw move syntax for auditing
+            db.save_move_syntax(_conn(), None, "practice", 0, "A", decision_idx, st.frame, round(st.frame * LIVE_DT, 2), raw_text)
 
             replay_frame = int(round(st.frame * LIVE_DT * FPS))
             orders.append(dict(frame=replay_frame, f=0, text=ans["text"][:800], steps=steps))
@@ -203,9 +206,9 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
     )
 
 
-def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, offset_x=0.0, on_progress=None):
+def fight(asks, info, round_summaries, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, offset_x=0.0, on_progress=None):
     spec, st, rn = sim.new_match(2, gap, offset_x)
-    systems = [prompts.fight_system(info, notes[f], "AB"[f]) for f in range(2)]
+    systems = [prompts.fight_system(info, round_summaries[f], "AB"[f]) for f in range(2)]
     libs, orders, events = list(libs), [], []
     errs = [[], []]
     last = 0.0
@@ -260,6 +263,9 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
                         word_count=wc if not is_fallback else len(display_text.split()), fighter="AB"[f],
                         time_sec=round(st.frame * LIVE_DT, 2),
                     ))
+                
+                # Save raw move syntax for auditing
+                db.save_move_syntax(_conn(), None, "fight", 0, "AB"[f], decision_idx, st.frame, round(st.frame * LIVE_DT, 2), raw_text)
 
                 replay_frame = int(round(st.frame * LIVE_DT * FPS))
                 orders.append(dict(frame=replay_frame, f=f, text=ans["text"][:800], steps=steps))

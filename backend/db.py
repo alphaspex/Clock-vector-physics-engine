@@ -29,7 +29,6 @@ def _x(conn, sql, args=()):
 
 def init(conn):
     pk = "BIGSERIAL PRIMARY KEY" if _pg(conn) else "INTEGER PRIMARY KEY AUTOINCREMENT"
-    _x(conn, f"CREATE TABLE IF NOT EXISTS notes (id {pk}, ai TEXT, kind TEXT, run_n INTEGER, text TEXT, created TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS library (ai TEXT PRIMARY KEY, data TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS runs (id {pk}, kind TEXT, n INTEGER, created TEXT, setup TEXT, orders TEXT, frames INTEGER, result TEXT, info TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT, status TEXT, stage TEXT, created TEXT, started REAL, elapsed_ms INTEGER, run_n INTEGER, result TEXT, params TEXT, usage TEXT, error TEXT)")
@@ -38,6 +37,7 @@ def init(conn):
     _x(conn, "CREATE TABLE IF NOT EXISTS replays (kind TEXT, n INTEGER, status TEXT, progress TEXT, data TEXT, PRIMARY KEY (kind, n))")
     _x(conn, f"CREATE TABLE IF NOT EXISTS interval_descriptions (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, text TEXT, word_count INTEGER, created TEXT)")
     _x(conn, f"CREATE TABLE IF NOT EXISTS round_summaries (id {pk}, ai TEXT, kind TEXT, run_n INTEGER, text TEXT, created TEXT)")
+    _x(conn, f"CREATE TABLE IF NOT EXISTS move_history (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, syntax TEXT, created TEXT)")
     conn.commit()
 
 
@@ -84,14 +84,10 @@ def load_round_summaries(conn, ai, kind, limit=3):
     return [r[0] for r in reversed(rows)]
 
 
-def save_note(conn, ai, kind, run_n, text):
-    _x(conn, "INSERT INTO notes (ai, kind, run_n, text, created) VALUES (%s,%s,%s,%s,%s)", (ai, kind, run_n, text, _now()))
+def save_move_syntax(conn, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, syntax):
+    _x(conn, "INSERT INTO move_history (job_id, kind, run_n, fighter, interval_idx, frame, time_sec, syntax, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+       (job_id or "", kind or "", run_n or 0, fighter or "A", interval_idx or 0, frame or 0, time_sec or 0.0, syntax, _now()))
     conn.commit()
-
-
-def load_notes(conn, ai, limit=30):
-    rows = _x(conn, "SELECT text FROM notes WHERE ai=%s ORDER BY id DESC LIMIT %s", (ai, limit)).fetchall()
-    return [r[0] for r in reversed(rows)]
 
 
 def save_library(conn, ai, lib):
@@ -258,7 +254,7 @@ def get_catalog(conn):
         "runs_practice": _x(conn, "SELECT COUNT(*) FROM runs WHERE kind='practice'").fetchone()[0],
         "round_summaries": _x(conn, "SELECT COUNT(*) FROM round_summaries").fetchone()[0],
         "interval_descriptions": _x(conn, "SELECT COUNT(*) FROM interval_descriptions").fetchone()[0],
-        "notes": _x(conn, "SELECT COUNT(*) FROM notes").fetchone()[0],
+        "move_history": _x(conn, "SELECT COUNT(*) FROM move_history").fetchone()[0],
         "library": _x(conn, "SELECT COUNT(*) FROM library").fetchone()[0],
         "jobs": _x(conn, "SELECT COUNT(*) FROM jobs").fetchone()[0],
         "events": _x(conn, "SELECT COUNT(*) FROM job_events").fetchone()[0],
@@ -334,20 +330,21 @@ def get_catalog(conn):
             ]
         ),
         dict(
-            key="notes",
-            label="AI Memories / Notes",
-            description="Reflective memories and combat notes generated post-fight.",
-            count=counts["notes"],
+            key="move_history",
+            label="Move Syntax History",
+            description="Audit trail of the raw position-word syntax sent by the AI in each interval.",
+            count=counts["move_history"],
             primary_key="id",
             operations=["list", "inspect", "delete", "bulk_delete", "reset"],
             reversible=False,
             fields=[
                 dict(key="id", label="ID", type="number", primary=True),
-                dict(key="ai", label="Fighter", type="string"),
-                dict(key="kind", label="Round Kind", type="string"),
-                dict(key="run_n", label="Source Run #", type="number"),
+                dict(key="fighter", label="Fighter", type="string"),
+                dict(key="kind", label="Kind", type="string"),
+                dict(key="interval_idx", label="Interval #", type="number"),
+                dict(key="time_sec", label="Time (s)", type="number"),
+                dict(key="syntax", label="Raw Syntax", type="string"),
                 dict(key="created", label="Timestamp", type="string"),
-                dict(key="text", label="Note Content", type="string"),
             ]
         ),
         dict(
@@ -437,10 +434,10 @@ def list_resource(conn, resource, limit=50, offset=0):
         items = [dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10]) for r in rows]
         return dict(items=items, total=total, limit=limit, offset=offset)
 
-    if resource == "notes":
-        total = _x(conn, "SELECT COUNT(*) FROM notes").fetchone()[0]
-        rows = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM notes ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
-        items = [dict(id=r[0], ai=r[1], kind=r[2], run_n=r[3], text=r[4], created=r[5]) for r in rows]
+    if resource == "move_history":
+        total = _x(conn, "SELECT COUNT(*) FROM move_history").fetchone()[0]
+        rows = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, syntax, created FROM move_history ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], syntax=r[8], created=r[9]) for r in rows]
         return dict(items=items, total=total, limit=limit, offset=offset)
 
     if resource == "library":
@@ -495,10 +492,10 @@ def get_resource_item(conn, resource, item_id):
         if not r: return None
         return dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10])
 
-    if resource == "notes":
-        r = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM notes WHERE id=%s", (int(item_id),)).fetchone()
+    if resource == "move_history":
+        r = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, syntax, created FROM move_history WHERE id=%s", (int(item_id),)).fetchone()
         if not r: return None
-        return dict(id=r[0], ai=r[1], kind=r[2], run_n=r[3], text=r[4], created=r[5])
+        return dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], syntax=r[8], created=r[9])
 
     if resource == "library":
         r = _x(conn, "SELECT ai, data FROM library WHERE ai=%s", (str(item_id),)).fetchone()
@@ -553,8 +550,8 @@ def delete_resource_item(conn, resource, item_id, active_jobs=()):
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)
 
-    if resource == "notes":
-        cur = _x(conn, "DELETE FROM notes WHERE id=%s", (int(item_id),))
+    if resource == "move_history":
+        cur = _x(conn, "DELETE FROM move_history WHERE id=%s", (int(item_id),))
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)
 
@@ -584,24 +581,21 @@ def delete_resource_batch(conn, resource, item_ids, active_jobs=()):
 
 def reset_memory(conn, target="all"):
     """
-    Clears round summaries, notes, and resets learned libraries to empty for specified target ('A', 'B', or 'all').
+    Clears round summaries and resets learned libraries to empty for specified target ('A', 'B', or 'all').
     Leaves runs (practice and fight history) intact!
     """
-    deleted_notes = 0
     reset_libs = 0
 
     if target in ("A", "B"):
-        cur = _x(conn, "DELETE FROM notes WHERE ai=%s", (target,))
-        deleted_notes = cur.rowcount
         _x(conn, "DELETE FROM round_summaries WHERE ai=%s", (target,))
         _x(conn, "DELETE FROM interval_descriptions WHERE fighter=%s", (target,))
+        _x(conn, "DELETE FROM move_history WHERE fighter=%s", (target,))
         save_library(conn, target, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
         reset_libs = 1
     elif target == "all":
-        cur = _x(conn, "DELETE FROM notes")
-        deleted_notes = cur.rowcount
         _x(conn, "DELETE FROM round_summaries")
         _x(conn, "DELETE FROM interval_descriptions")
+        _x(conn, "DELETE FROM move_history")
         for a in ("A", "B"):
             save_library(conn, a, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
         reset_libs = 2
@@ -609,7 +603,7 @@ def reset_memory(conn, target="all"):
         return dict(ok=False, error="Target must be 'A', 'B', or 'all'")
 
     conn.commit()
-    return dict(ok=True, deleted_notes=deleted_notes, reset_libraries=reset_libs, target=target)
+    return dict(ok=True, reset_libraries=reset_libs, target=target)
 
 
 def set_setting(conn, key, val):
@@ -627,9 +621,9 @@ def get_setting(conn, key):
 
 def purge_all_database_data(conn, active_jobs=()):
     """Completely purges all data across all tables in the database."""
-    _x(conn, "DELETE FROM notes")
     _x(conn, "DELETE FROM round_summaries")
     _x(conn, "DELETE FROM interval_descriptions")
+    _x(conn, "DELETE FROM move_history")
     _x(conn, "DELETE FROM replays")
     _x(conn, "DELETE FROM runs")
     _x(conn, "DELETE FROM library")

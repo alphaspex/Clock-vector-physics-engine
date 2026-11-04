@@ -143,7 +143,6 @@ export interface DbDeleteWireResponse {
 
 export interface DbResetMemoryWireResponse {
   ok: boolean;
-  deleted_notes: number;
   reset_libraries: number;
   target: string;
   error?: string;
@@ -227,7 +226,6 @@ export type ReplayWireResponse = ReplayComputingWireResponse | ReplayReadyWireRe
 
 export interface MemoryWireResponse {
   ai: 'A' | 'B';
-  notes: string[];
   moves: string[];
   chains: Record<string, unknown>;
 }

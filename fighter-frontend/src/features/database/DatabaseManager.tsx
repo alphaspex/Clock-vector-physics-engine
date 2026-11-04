@@ -163,7 +163,7 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
         const target = confirmModal.resetTarget || 'all';
         const res = await api.resetMemory(adminToken.trim(), target);
         setActionNotice(
-          `Memory Reset complete: Deleted ${res.deleted_notes} notes and cleared ${res.reset_libraries} move libraries. Runs history was preserved.`,
+          `Memory Reset complete: Cleared ${res.reset_libraries} move libraries and interval/syntax logs. Runs history was preserved.`,
         );
       } else if (confirmModal.type === 'purge-all') {
         const res = await api.purgeAllDatabase(adminToken.trim());
@@ -463,7 +463,7 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
                     Are you sure you want to <strong>PURGE ALL DATABASE DATA</strong>?
                   </p>
                   <p className="modal-note text-bad">
-                    This will permanently delete ALL fight and practice run histories, replays, interval descriptions, AI round summaries, notes, learned move libraries, jobs, and event streams.
+                    This will permanently delete ALL fight and practice run histories, replays, interval descriptions, move syntax history, AI round summaries, learned move libraries, jobs, and event streams.
                   </p>
                   <p className="modal-note font-bold text-bad mt-2">
                     THIS ACTION IS COMPLETELY IRREVERSIBLE.
@@ -475,7 +475,7 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
                     Are you sure you want to <strong>Reset Memory</strong>?
                   </p>
                   <p className="modal-note">
-                    This will delete all stored AI reflection notes and reset learned move libraries to empty.
+                    This will delete all stored AI interval descriptions, move syntax history, and reset learned move libraries to empty.
                     <strong> Run history (saved fights and practices) will be preserved 100%.</strong>
                   </p>
                   <div className="field mt-3">
