@@ -66,6 +66,24 @@ export function mapJob(wire: JobWireResponse): SimulationJob {
       reasoning: wire.usage.reasoning || 0,
     } : undefined,
     errorMessage: wire.error,
+    latestThinking: wire.latest_thinking ? {
+      fighter: wire.latest_thinking.fighter || 'A',
+      text: wire.latest_thinking.text || '',
+      wordCount: wire.latest_thinking.word_count,
+      frame: wire.latest_thinking.frame,
+      interval_index: wire.latest_thinking.interval_index,
+      valid_20_words: wire.latest_thinking.valid_20_words,
+    } : undefined,
+    thinkingHistory: Array.isArray(wire.thinking_history) ? wire.thinking_history.map(t => ({
+      fighter: t.fighter || 'A',
+      text: t.text || '',
+      wordCount: t.word_count,
+      frame: t.frame,
+      interval_index: t.interval_index,
+      valid_20_words: t.valid_20_words,
+    })) : undefined,
+    roundSummary: wire.round_summary,
+    roundSummaries: wire.round_summaries,
   };
 }
 

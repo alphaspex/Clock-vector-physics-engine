@@ -182,7 +182,7 @@ def _run_practice(jid, p):
     server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Job {jid} running {p.get('seconds', PRACTICE_SECONDS)}s practice", job_id=jid)
     server_logs.emit("INFO", "SIMULATION", f"Job {jid} started practice simulation for Fighter {p['ai']}", params=p)
     with LOCK:
-        JOBS[jid].update(stage="simulation")
+        JOBS[jid].update(stage="simulation", thinking_history=[])
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "simulation", f"Beginning practice simulation for Fighter {p['ai']}", dict(p=p))
 
@@ -196,10 +196,16 @@ def _run_practice(jid, p):
                 if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
                 if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
                 if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
+                if "thinking" in ev and ev["thinking"]:
+                    t_item = dict(fighter=ev.get("fighter", "A"), text=ev["thinking"], word_count=ev.get("word_count", 0), frame=ev.get("frame", 0))
+                    JOBS[jid]["latest_thinking"] = t_item
+                    JOBS[jid].setdefault("thinking_history", []).append(t_item)
         stg = ev.get("stage")
         if stg == "decision":
             server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Decision #{ev.get('decision')}/{ev.get('target_decisions')} (Frame {ev.get('frame')}/{ev.get('max_frame')})", job_id=jid)
             server_logs.emit("DEBUG", "SIMULATION", f"Job {jid} decision #{ev.get('decision')} at frame {ev.get('frame')} ({ev.get('percent')}%)", **ev)
+            if ev.get("thinking"):
+                db.save_interval_description(_conn(), jid, "practice", 0, ev.get("fighter", "A"), ev.get("decision", 0), ev.get("frame", 0), round(ev.get("frame", 0) * LIVE_DT, 2), ev["thinking"], ev.get("word_count", 0))
         elif stg == "physics":
             server_logs.emit("DEBUG", "PHYSICS", f"Job {jid} physics advanced to frame {ev.get('frame')}/{ev.get('max_frame')}", **ev)
         elif stg == "ai_error":
@@ -207,7 +213,7 @@ def _run_practice(jid, p):
             db.save_event(_conn(), jid, "warn", "ai_error", ev.get("error", "AI error"), ev)
 
     r = rounds.practice(_ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS, jid=jid), INFO,
-                        db.load_notes(conn, p["ai"]), db.load_library(conn, p["ai"]),
+                        db.load_round_summaries(conn, p["ai"], "practice", limit=3), db.load_library(conn, p["ai"]),
                         p["interval"], p.get("seconds", PRACTICE_SECONDS), on_progress=on_progress)
 
     # Persistence stage
@@ -222,9 +228,18 @@ def _run_practice(jid, p):
     n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
     db.save_replay_status(conn, "practice", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
 
+    # Save practice round summary
+    if r.get("round_summary"):
+        db.save_round_summary(conn, p["ai"], "practice", n, r["round_summary"])
+        db.save_event(conn, jid, "info", "round_summary", f"Fighter {p['ai']} saved practice round summary for #{n}")
+        server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {p['ai']} saved practice round summary", summary_preview=r["round_summary"][:100])
+
     with LOCK:
         elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
-        JOBS[jid].update(status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
+        JOBS[jid].update(
+            status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled",
+            round_summary=r.get("round_summary"),
+        )
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "completed", f"Practice #{n} simulation completed (replay not compiled)", dict(run=n, frames=r["frames"]))
 
@@ -237,7 +252,7 @@ def _run_fight(jid, p):
     server_logs.set_activity("Fighting: Fighter A vs Fighter B", f"Job {jid} running {p.get('seconds', FIGHT_SECONDS)}s match", job_id=jid)
     server_logs.emit("INFO", "SIMULATION", f"Job {jid} started fight match Fighter A vs Fighter B", params=p)
     with LOCK:
-        JOBS[jid].update(stage="simulation")
+        JOBS[jid].update(stage="simulation", thinking_history=[])
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "simulation", f"Beginning fight simulation: Fighter A vs Fighter B", dict(p=p))
 
@@ -251,10 +266,16 @@ def _run_fight(jid, p):
                 if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
                 if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
                 if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
+                if "thinking" in ev and ev["thinking"]:
+                    t_item = dict(fighter=ev.get("fighter", "AB"[0]), text=ev["thinking"], word_count=ev.get("word_count", 0), frame=ev.get("frame", 0))
+                    JOBS[jid]["latest_thinking"] = t_item
+                    JOBS[jid].setdefault("thinking_history", []).append(t_item)
         stg = ev.get("stage")
         if stg == "decision":
             server_logs.set_activity("Fighting: Fighter A vs Fighter B", f"Decision #{ev.get('decision')}/{ev.get('target_decisions')} (Frame {ev.get('frame')}/{ev.get('max_frame')})", job_id=jid)
             server_logs.emit("DEBUG", "SIMULATION", f"Job {jid} fight decision #{ev.get('decision')} at frame {ev.get('frame')} ({ev.get('percent')}%)", **ev)
+            if ev.get("thinking"):
+                db.save_interval_description(_conn(), jid, "fight", 0, ev.get("fighter", "A"), ev.get("decision", 0), ev.get("frame", 0), round(ev.get("frame", 0) * LIVE_DT, 2), ev["thinking"], ev.get("word_count", 0))
         elif stg == "physics":
             res_str = f" [Result: {ev.get('result')}]" if ev.get("result") else ""
             server_logs.emit("DEBUG", "PHYSICS", f"Job {jid} physics frame {ev.get('frame')}/{ev.get('max_frame')}{res_str}", **ev)
@@ -264,7 +285,9 @@ def _run_fight(jid, p):
 
     ais = ("A", "B")
     asks = [_ask(p["presets"][f], p["efforts"][f], FIGHT_MAX_TOKENS, jid=jid) for f in range(2)]
-    r = rounds.fight(asks, INFO, [db.load_notes(conn, a) for a in ais], [db.load_library(conn, a) for a in ais],
+    # Three-round memory rule: load latest 3 completed fight summaries separately for Fighter A and B
+    notes_per_fighter = [db.load_round_summaries(conn, a, "fight", limit=3) for a in ais]
+    r = rounds.fight(asks, INFO, notes_per_fighter, [db.load_library(conn, a) for a in ais],
                      p["interval"], p.get("seconds", FIGHT_SECONDS), on_progress=on_progress)
 
     # Persistence stage
@@ -278,20 +301,21 @@ def _run_fight(jid, p):
     n = db.save_run(conn, "fight", r["setup"], r["orders"], r["frames"], r["result"], dict(p, usage=r["usage"]))
     db.save_replay_status(conn, "fight", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
 
-    # Memory reflections
-    server_logs.set_activity(f"Formulating AI Memories for Fight #{n}", f"Generating tactical lessons", job_id=jid)
+    # Save fight round summaries (one per fighter)
+    round_sums = r.get("round_summaries", ["", ""])
     for f, a in enumerate(ais):
         db.save_library(conn, a, r["libs"][f])
-        ans = _ask(p["presets"][f], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid)(
-            prompts.note_system(), prompts.note_user(digest.digest(r["events"], r["orders"], r["result"], f)))
-        if not ans.get("error") and ans.get("text", "").strip():
-            db.save_note(conn, a, "fight", n, ans["text"].strip()[:NOTE_MAX_CHARS])
-            db.save_event(conn, jid, "info", "memory", f"Fighter {a} stored post-fight memory note for round #{n}")
-            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {a} saved post-fight memory note", note_preview=ans["text"][:100])
+        if f < len(round_sums) and round_sums[f]:
+            db.save_round_summary(conn, a, "fight", n, round_sums[f])
+            db.save_event(conn, jid, "info", "round_summary", f"Fighter {a} stored fight round summary for #{n}")
+            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {a} saved fight round summary", summary_preview=round_sums[f][:100])
 
     with LOCK:
         elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
-        JOBS[jid].update(status="done", stage="completed", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
+        JOBS[jid].update(
+            status="done", stage="completed", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled",
+            round_summaries=round_sums,
+        )
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "completed", f"Fight #{n} simulation completed (replay not compiled)", dict(run=n, result=r["result"], frames=r["frames"]))
 
@@ -402,7 +426,14 @@ def _db_delete_batch(resource, item_ids):
 def _memory(ai):
     conn = _conn()
     lib = db.load_library(conn, ai)
-    return dict(ai=ai, notes=db.load_notes(conn, ai), moves=sorted(lib.get("moves", {}).keys()), chains=lib.get("chains", {}))
+    return dict(
+        ai=ai,
+        notes=db.load_notes(conn, ai),
+        practice_summaries=db.load_round_summaries(conn, ai, "practice", limit=3),
+        fight_summaries=db.load_round_summaries(conn, ai, "fight", limit=3),
+        moves=sorted(lib.get("moves", {}).keys()),
+        chains=lib.get("chains", {}),
+    )
 
 
 def _ctx():

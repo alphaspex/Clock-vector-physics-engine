@@ -36,11 +36,52 @@ def init(conn):
     _x(conn, f"CREATE TABLE IF NOT EXISTS job_events (id {pk}, job_id TEXT, created TEXT, severity TEXT, stage TEXT, message TEXT, metadata TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, val TEXT)")
     _x(conn, "CREATE TABLE IF NOT EXISTS replays (kind TEXT, n INTEGER, status TEXT, progress TEXT, data TEXT, PRIMARY KEY (kind, n))")
+    _x(conn, f"CREATE TABLE IF NOT EXISTS interval_descriptions (id {pk}, job_id TEXT, kind TEXT, run_n INTEGER, fighter TEXT, interval_idx INTEGER, frame INTEGER, time_sec REAL, text TEXT, word_count INTEGER, created TEXT)")
+    _x(conn, f"CREATE TABLE IF NOT EXISTS round_summaries (id {pk}, ai TEXT, kind TEXT, run_n INTEGER, text TEXT, created TEXT)")
     conn.commit()
 
 
 def _now():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+
+
+def save_interval_description(conn, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count):
+    _x(conn, "INSERT INTO interval_descriptions (job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+       (job_id or "", kind or "", run_n or 0, fighter or "A", interval_idx or 0, frame or 0, time_sec or 0.0, text, word_count, _now()))
+    conn.commit()
+
+
+def get_interval_descriptions(conn, job_id=None, kind=None, run_n=None, fighter=None, limit=100):
+    query = "SELECT job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions WHERE 1=1"
+    args = []
+    if job_id:
+        query += " AND job_id=%s"
+        args.append(job_id)
+    if kind:
+        query += " AND kind=%s"
+        args.append(kind)
+    if run_n:
+        query += " AND run_n=%s"
+        args.append(run_n)
+    if fighter:
+        query += " AND fighter=%s"
+        args.append(fighter)
+    query += " ORDER BY id ASC LIMIT %s"
+    args.append(limit)
+    rows = _x(conn, query, tuple(args)).fetchall()
+    return [dict(job_id=r[0], kind=r[1], run_n=r[2], fighter=r[3], interval_idx=r[4], frame=r[5], time_sec=r[6], text=r[7], word_count=r[8], created=r[9]) for r in rows]
+
+
+def save_round_summary(conn, ai, kind, run_n, text):
+    """Saves end-of-round summary. Practice and fight summaries are strictly separated."""
+    _x(conn, "INSERT INTO round_summaries (ai, kind, run_n, text, created) VALUES (%s,%s,%s,%s,%s)", (ai, kind, run_n, text, _now()))
+    conn.commit()
+
+
+def load_round_summaries(conn, ai, kind, limit=3):
+    """Loads latest three completed round summaries for this fighter and mode, oldest first."""
+    rows = _x(conn, "SELECT text FROM round_summaries WHERE ai=%s AND kind=%s ORDER BY id DESC LIMIT %s", (ai, kind, limit)).fetchall()
+    return [r[0] for r in reversed(rows)]
 
 
 def save_note(conn, ai, kind, run_n, text):
@@ -464,8 +505,7 @@ def delete_resource_batch(conn, resource, item_ids, active_jobs=()):
 
 def reset_memory(conn, target="all"):
     """
-    Preserves existing Reset Memory scope:
-    Clears notes and resets learned libraries to empty for specified target ('A', 'B', or 'all').
+    Clears round summaries, notes, and resets learned libraries to empty for specified target ('A', 'B', or 'all').
     Leaves runs (practice and fight history) intact!
     """
     deleted_notes = 0
@@ -474,13 +514,17 @@ def reset_memory(conn, target="all"):
     if target in ("A", "B"):
         cur = _x(conn, "DELETE FROM notes WHERE ai=%s", (target,))
         deleted_notes = cur.rowcount
-        save_library(conn, target, dict(moves={}, chains={}))
+        _x(conn, "DELETE FROM round_summaries WHERE ai=%s", (target,))
+        _x(conn, "DELETE FROM interval_descriptions WHERE fighter=%s", (target,))
+        save_library(conn, target, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
         reset_libs = 1
     elif target == "all":
         cur = _x(conn, "DELETE FROM notes")
         deleted_notes = cur.rowcount
+        _x(conn, "DELETE FROM round_summaries")
+        _x(conn, "DELETE FROM interval_descriptions")
         for a in ("A", "B"):
-            save_library(conn, a, dict(moves={}, chains={}))
+            save_library(conn, a, dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}))
         reset_libs = 2
     else:
         return dict(ok=False, error="Target must be 'A', 'B', or 'all'")

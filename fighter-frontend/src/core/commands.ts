@@ -72,6 +72,19 @@ export interface SimulationJob {
   params?: Record<string, unknown>;
   usage?: { prompt: number; completion: number; reasoning: number };
   errorMessage?: string;
+  latestThinking?: ThinkingItem;
+  thinkingHistory?: ThinkingItem[];
+  roundSummary?: string;
+  roundSummaries?: string[];
+}
+
+export interface ThinkingItem {
+  fighter: string;
+  text: string;
+  wordCount?: number;
+  frame?: number;
+  interval_index?: number;
+  valid_20_words?: boolean;
 }
 
 export interface ActivityEvent {

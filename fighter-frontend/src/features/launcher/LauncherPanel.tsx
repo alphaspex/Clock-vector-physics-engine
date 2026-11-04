@@ -12,6 +12,7 @@ interface Props {
   onAdminTokenChange: (token: string) => void;
   onStartPractice: (input: PracticeCommand, token: string) => void;
   onStartFight: (input: FightCommand, token: string) => void;
+  activeThinking?: import('../../core/commands').ThinkingItem;
 }
 
 type ProviderFamily = 'meta' | 'baseten';
@@ -147,6 +148,7 @@ export default function LauncherPanel({
   onAdminTokenChange,
   onStartPractice,
   onStartFight,
+  activeThinking,
 }: Props) {
   const [mode, setMode] = useState<Mode>('practice');
   const [practiceAI, setPracticeAI] = useState<MemorySlot>('A');
@@ -362,6 +364,21 @@ export default function LauncherPanel({
       {busy && (
         <div className="activity-inline">
           <span className="spinner" /> <span>{activityMessage}</span>
+        </div>
+      )}
+      {activeThinking && (
+        <div className="card" style={{ marginTop: '0.75rem', borderColor: '#3b82f6', background: 'rgba(59, 130, 246, 0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.05em', color: '#60a5fa' }}>
+              LIVE THINKING ({activeThinking.fighter}) · INTERVAL {activeThinking.interval_index ?? activeThinking.frame ?? 1}
+            </span>
+            <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: activeThinking.valid_20_words ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)', color: activeThinking.valid_20_words ? '#4ade80' : '#f87171' }}>
+              {activeThinking.wordCount ?? 20} words {activeThinking.valid_20_words ? '(exact 20)' : ''}
+            </span>
+          </div>
+          <p style={{ margin: 0, fontStyle: 'italic', fontSize: '0.8rem', lineHeight: '1.4', color: '#e2e8f0' }}>
+            "{activeThinking.text}"
+          </p>
         </div>
       )}
       {!backendOnline && (

@@ -314,6 +314,42 @@ export default function ControlRoomPanel({
                       )}
                     </div>
 
+                    {/* Section 10: Visible INTERVAL DESCRIPTION (THINKING) Process */}
+                    {(job.latestThinking || (job.thinkingHistory && job.thinkingHistory.length > 0)) && (
+                      <div className="job-thinking-panel" style={{ marginTop: '0.6rem', padding: '0.6rem', background: '#182030', borderRadius: '6px', border: '1px solid #2a364f' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.05em', color: '#38bdf8' }}>
+                            INTERVAL DESCRIPTION (THINKING)
+                          </span>
+                          {job.latestThinking?.wordCount && (
+                            <span style={{ fontSize: '0.68rem', color: job.latestThinking.wordCount === 20 ? '#34d399' : '#f59e0b' }}>
+                              {job.latestThinking.wordCount} words {job.latestThinking.wordCount === 20 ? '✓' : '(20 required)'}
+                            </span>
+                          )}
+                        </div>
+                        {job.latestThinking && (
+                          <div style={{ fontSize: '0.82rem', fontStyle: 'italic', color: '#e2e8f0', lineHeight: 1.4, marginBottom: '0.4rem' }}>
+                            "{job.latestThinking.text}"
+                          </div>
+                        )}
+                        {job.thinkingHistory && job.thinkingHistory.length > 1 && (
+                          <details style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                            <summary style={{ cursor: 'pointer', outline: 'none' }}>
+                              View history ({job.thinkingHistory.length} intervals)
+                            </summary>
+                            <ol style={{ paddingLeft: '1.2rem', marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              {job.thinkingHistory.map((th, thIdx) => (
+                                <li key={thIdx}>
+                                  <span style={{ color: '#64748b' }}>[Frame {th.frame || '?'}] Fighter {th.fighter}: </span>
+                                  <span>{th.text}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          </details>
+                        )}
+                      </div>
+                    )}
+
                     {job.errorMessage && (
                       <div className="job-error">
                         <AlertTriangle size={12} />

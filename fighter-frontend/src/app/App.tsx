@@ -177,6 +177,7 @@ export default function App() {
               onAdminTokenChange={simulation.setAdminToken}
               onStartPractice={simulation.startPractice}
               onStartFight={simulation.startFight}
+              activeThinking={simulation.jobs.find((j) => j.state === 'running')?.latestThinking ?? simulation.jobs[0]?.latestThinking}
             />
             <RunHistory
               practiceRuns={simulation.practiceRuns}

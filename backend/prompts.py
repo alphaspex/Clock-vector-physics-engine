@@ -1,57 +1,139 @@
-"""PROMPTS: builds every text the AI reads. Pure text in, text out. Never mentions health.
-language_help(info) / practice_system(info, notes) / fight_system(info, notes, me) / turn_message(obs, errors, lib)
-note_system() / note_user(digest_text)"""
-_SEM = {"shoulder": "angles: pitch,out. pitch = swing forward(+)/back(-), 0 = arm hangs down. out = sideways 0..180, arm can never cross the body.",
-        "hip": "angles: pitch,out. pitch = leg forward(+)/back(-), 0 = leg straight down. out = sideways (negative = inward).",
-        "elbow": "one angle: bend of the forearm forward.", "knee": "one angle: bend of the shin backward.",
-        "ankle": "one angle: foot tilt, + = toes up, - = toes down."}
+"""PROMPTS: builds system and user prompts for Practice and Fight modes, and round summaries.
+Pure text in, text out. Never mentions raw health numbers.
+"""
+
+_WORLD_RULES = (
+    "WORLD & PHYSICS RULES:\n"
+    "- Gravity is 9.81 m/s^2 downwards. Ground is a flat ring of radius 5.0 m with a 0.5 m wall.\n"
+    "- You control a stick-fighter built from physical balls linked by wooden links.\n"
+    "- CHEST is the central ball. Heavy iron balls hurt wood. Fists and chest cannot be destroyed.\n"
+    "- There are no hips, legs, knees, ankles, or feet. Moving and rotating around the arena relies on your chest and arms contacting the ground.\n"
+    "- Motors apply torque towards target angles. Physics and collisions govern all movement.\n"
+)
+
+_OFFICIAL_BODY_STRUCTURE = (
+    "OFFICIAL BODY STRUCTURE:\n"
+    "FIGHTER\n"
+    "└── CHEST (central ball, origin for all relative measurements)\n"
+    "    └── NECK (connecting link, not a ball)\n"
+    "        ├── HEAD (physical ball)\n"
+    "        ├── RIGHT_ARM\n"
+    "        │   ├── NECK_RIGHT_JOINT (connection force to chest/neck)\n"
+    "        │   └── RIGHT_SHOULDER (physical ball)\n"
+    "        │       └── SHOULDER_RIGHT_JOINT (connection force to shoulder)\n"
+    "        │           └── RIGHT_ELBOW (physical ball)\n"
+    "        │               └── ELBOW_RIGHT_JOINT (connection force to elbow)\n"
+    "        │                   └── RIGHT_FIST (physical ball)\n"
+    "        └── LEFT_ARM\n"
+    "            ├── NECK_LEFT_JOINT (connection force to chest/neck)\n"
+    "            └── LEFT_SHOULDER (physical ball)\n"
+    "                └── SHOULDER_LEFT_JOINT (connection force to shoulder)\n"
+    "                    └── LEFT_ELBOW (physical ball)\n"
+    "                        └── ELBOW_LEFT_JOINT (connection force to elbow)\n"
+    "                            └── LEFT_FIST (physical ball)\n"
+)
+
+_POSITION_VOCABULARY = (
+    "3D POSITION VOCABULARY (42 OFFICIAL WORDS):\n"
+    "All positions describe relative locations from CHEST CENTER as the origin in local frame (X=RIGHT, Y=UP, Z=FRONT).\n"
+    "Standard syntax: DISTANCE + HORIZONTAL_DIRECTION + VERTICAL_DIRECTION\n"
+    "\n"
+    "A. Horizontal Direction (24 values, 360° circle around Y axis):\n"
+    "  0°: FRONT | 15°: FRONT SLIGHT RIGHT | 30°: FRONT RIGHT | 45°: FRONT DIAGONAL RIGHT | 60°: RIGHT DIAGONAL FRONT | 75°: RIGHT SLIGHT FRONT\n"
+    "  90°: RIGHT | 105°: RIGHT SLIGHT BACK | 120°: RIGHT DIAGONAL BACK | 135°: RIGHT BACK | 150°: BACK DIAGONAL RIGHT | 165°: BACK SLIGHT RIGHT\n"
+    "  180°: BACK | 195°: BACK SLIGHT LEFT | 210°: BACK DIAGONAL LEFT | 225°: BACK LEFT | 240°: LEFT DIAGONAL BACK | 255°: LEFT SLIGHT BACK\n"
+    "  270°: LEFT | 285°: LEFT SLIGHT FRONT | 300°: LEFT DIAGONAL FRONT | 315°: LEFT FRONT | 330°: FRONT DIAGONAL LEFT | 345°: FRONT SLIGHT LEFT\n"
+    "\n"
+    "B. Vertical Direction (13 values, -90° to +90°):\n"
+    "  +90°: STRAIGHT UP | +75°: NEAR UP | +60°: HIGH UP | +45°: DIAGONAL UP | +30°: UPPER | +15°: SLIGHT UPPER\n"
+    "  0°: LEVEL | -15°: SLIGHT LOWER | -30°: LOWER | -45°: DIAGONAL DOWN | -60°: LOW DOWN | -75°: NEAR DOWN | -90°: STRAIGHT DOWN\n"
+    "  (Note: At STRAIGHT UP or STRAIGHT DOWN, horizontal direction is omitted because it is undefined).\n"
+    "\n"
+    "C. Distance (5 bands, measured beyond chest radius):\n"
+    "  0-0.10 m: VERY-CLOSE | 0.10-0.25 m: CLOSE | 0.25-0.45 m: MID | 0.45-0.70 m: FAR | Over 0.70 m: VERY-FAR\n"
+    "\n"
+    "D. Ground:\n"
+    "  When a body ball touches the floor, its distance word is replaced with GROUND (e.g., GROUND FRONT LEVEL).\n"
+)
+
+_MOTOR_RULES = (
+    "MOTOR CONTROL & EXACT 15° ROTATION RESTRICTION:\n"
+    "- MOTORS: R_shoulder, L_shoulder, R_elbow, L_elbow\n"
+    "  - Shoulder angles: (pitch, out). pitch = forward(+)/back(-); out = sideways(0..180).\n"
+    "  - Elbow angle: (bend). bend forward (0..150).\n"
+    "- STRICT ROTATION RULE:\n"
+    "  - Motor angles must be EXACT MULTIPLES OF 15° (e.g. -45°, -30°, -15°, 0°, 15°, 30°, 45°, 60°).\n"
+    "  - Any command with an angle that is not a multiple of 15° is rejected.\n"
+    "  - Do NOT issue position or distance commands to motors.\n"
+    "\n"
+    "OUTPUT SYNTAX PER INTERVAL:\n"
+    "1. Situation description (MANDATORY, exactly 20 words):\n"
+    "   [THINKING]\n"
+    "   Exactly 20 words describing the current moment, body pose, movement, contact, or opponent situation.\n"
+    "   [/THINKING]\n"
+    "2. Move definitions with 5-10 word descriptions:\n"
+    "   move NAME = R_shoulder 60,0 1.0 ; R_elbow 30 1.0 | R_shoulder 0,0 0.5\n"
+    "   description: A quick punch aimed forward at the opponent.\n"
+    "3. Chain definitions with 10-15 word descriptions:\n"
+    "   chain NAME = move1, move2\n"
+    "   description: Advance, raise the guard, then deliver a forward punch.\n"
+    "4. Execution command:\n"
+    "   do NAME, NAME\n"
+)
 
 
-def language_help(info):
-    rows = []
-    for base, text in _SEM.items():
-        lim = info["L_" + base]["lim"]
-        rows.append(f"  L_{base} / R_{base}: {text} limits {' and '.join(f'{a}..{b}' for a, b in lim)} degrees")
-    return ("MOTORS (values outside limits are clamped automatically):\n" + "\n".join(rows) +
-            "\nLANGUAGE (one command per line):\n"
-            "  move NAME = L_shoulder 80,10 0.9 ; L_elbow 20 0.9 | L_shoulder 0,0 0.5\n"
-            "     ';' separates motors in one step, '|' starts the next step, last number = power 0..1 (torque and speed).\n"
-            "  chain NAME = move1, move2, chain3      (chains may contain moves and chains)\n"
-            "  do NAME, NAME                          (run now; REPLACES whatever is currently running)\n"
-            "A step ends when its motors reach their targets. A blocked or fallen limb stays stuck until your next 'do'.")
+def _format_round_summaries(summaries, mode_label):
+    if not summaries:
+        return f"\nPREVIOUS {mode_label.upper()} ROUND SUMMARIES: None yet.\n"
+    lines = [f"\nPREVIOUS {mode_label.upper()} ROUND SUMMARIES (latest {len(summaries)}, oldest first):"]
+    for i, s in enumerate(summaries, 1):
+        lines.append(f"Round {i}:\n{s}\n")
+    return "\n".join(lines)
 
 
-def _mem(notes):
-    return ("\nYOUR NOTES FROM EARLIER ROUNDS (oldest first):\n" + "\n".join(f"- {n}" for n in notes)) if notes else ""
+def practice_system(info, round_summaries=None):
+    """System prompt for Practice Mode (Section 13)."""
+    return (
+        "ROLE: You are an autonomous physics combat fighter in PRACTICE MODE.\n"
+        "OBJECTIVE: You are alone in the arena. Practice rotating your chest, moving across the ring, and throwing punches.\n"
+        "Save effective moves and chains with descriptions; they carry over to your fights.\n\n"
+        + _WORLD_RULES + "\n"
+        + _OFFICIAL_BODY_STRUCTURE + "\n"
+        + _POSITION_VOCABULARY + "\n"
+        + _MOTOR_RULES + "\n"
+        + _format_round_summaries(round_summaries, "Practice")
+    )
 
 
-_WORLD = ("You control a stick-fighter, 1 m tall and about 30 kg, built from iron balls joined by wooden links, in a real physics "
-          "world (gravity 9.81, flat ground, round arena radius 5 m with a 0.5 m wall). Nothing is scripted: you only set motor "
-          "targets and physics decides everything. Heavy iron balls hurt wood; iron cannot be destroyed. Your feet are tiny, so "
-          "standing is hard: falling, crawling and getting up are all valid.\n")
+def fight_system(info, round_summaries=None, me="A"):
+    """System prompt for Fight Mode (Section 13)."""
+    return (
+        f"ROLE: You are Fighter {me} in FIGHT MODE.\n"
+        "OBJECTIVE: Defeat the opponent. You win if the enemy head or neck is destroyed, or if the enemy chest stays outside the arena wall for 10 seconds. Match limit is 60 seconds.\n"
+        "Use your saved moves and chains using 'do'.\n\n"
+        + _WORLD_RULES + "\n"
+        + _OFFICIAL_BODY_STRUCTURE + "\n"
+        + _POSITION_VOCABULARY + "\n"
+        + _MOTOR_RULES + "\n"
+        + _format_round_summaries(round_summaries, f"Fight (Fighter {me})")
+    )
 
 
-def practice_system(info, notes):
-    return (_WORLD + "PRACTICE ROUND: you are alone, nothing can hurt you. Learn to stand, move, hit hard. Save useful moves and "
-            "chains: they are kept for your fights. Each turn you see your pose, then reply with at most 2 short sentences "
-            "followed by language lines.\n" + language_help(info) + _mem(notes))
+def round_summary_system():
+    """System prompt for end-of-round summary generation (Section 12)."""
+    return (
+        "You are an expert combat analyst. Read the chronological 20-word interval descriptions from your completed round and write a concise natural-language summary explaining:\n"
+        "1. WHAT I DID - the important actions and results.\n"
+        "2. WHAT I FAILED AT - the important mistakes, failures, or missed opportunities.\n"
+        "3. WHAT I SHOULD HAVE DONE - what would have been a better response.\n"
+        "Keep the summary concise, direct, and actionable for your future self."
+    )
 
 
-def fight_system(info, notes, me):
-    return (_WORLD + f"FIGHT ROUND: you are fighter {me}. You win if the enemy head or neck is destroyed, or the enemy core stays "
-            "outside the ring for 10 seconds. 60 seconds, otherwise a draw. You cannot see anyone's health. Use your saved moves "
-            "by name with 'do'. Reply with at most 1 short sentence then language lines.\n" + language_help(info) + _mem(notes))
-
-
-def turn_message(obs, errors, lib):
-    s = obs + "\nYour saved moves: " + (", ".join(sorted(lib["moves"])) or "none") + " | chains: " + (", ".join(sorted(lib["chains"])) or "none")
-    if errors: s += "\nProblems with your last answer: " + "; ".join(errors[:5])
-    return s + "\nAnswer now."
-
-
-def note_system():
-    return "You write one short memory note (max 150 words) for your future self about what worked and what failed. Plain text only."
-
-
-def note_user(digest_text):
-    return digest_text + "\nWrite the note now."
+def round_summary_user(interval_descriptions):
+    """User prompt providing the full round's interval descriptions."""
+    lines = ["Here are your chronological interval descriptions from the completed round:"]
+    for i, desc in enumerate(interval_descriptions, 1):
+        lines.append(f"Interval {i}: {desc}")
+    lines.append("\nWrite your 3-part round summary now.")
+    return "\n".join(lines)

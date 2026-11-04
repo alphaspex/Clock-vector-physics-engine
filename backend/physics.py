@@ -12,7 +12,7 @@ def step(spec, st, dt=DT):
     touches, err = [], st.err
     for _ in range(SUBSTEPS):
         v = forces.gravity_drag(st.v, spec, substep_dt)
-        v, err = muscles.drive(st.p, v, st.cmd, st.power, st.palive, spec, substep_dt)   # muscles every sub-step: they also keep the legs stiff
+        v, err = muscles.drive(st.p, v, st.cmd, st.power, st.palive, spec, substep_dt, lalive=st.lalive)
         pp = st.p + v * substep_dt
         batches = contacts.detect(pp, v, spec, st.palive, st.lalive)
         for k in range(ITERS):   # sweep the links forward then backward so support travels up and down a limb

@@ -61,6 +61,10 @@ export interface JobWireResponse {
   max_frame?: number;
   usage?: Record<string, number>;
   error?: string;
+  latest_thinking?: { fighter?: string; text?: string; word_count?: number; frame?: number; valid_20_words?: boolean; interval_index?: number };
+  thinking_history?: Array<{ fighter?: string; text?: string; word_count?: number; frame?: number; valid_20_words?: boolean; interval_index?: number }>;
+  round_summary?: string;
+  round_summaries?: string[];
 }
 
 export interface JobAuditWire {
