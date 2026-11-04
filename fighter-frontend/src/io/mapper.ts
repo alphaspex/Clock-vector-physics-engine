@@ -77,6 +77,8 @@ export function mapJob(wire: JobWireResponse): SimulationJob {
       interval_index: wire.latest_thinking.interval_index,
       decision: wire.latest_thinking.decision,
       valid_20_words: wire.latest_thinking.valid_20_words,
+      pre_tree: (wire.latest_thinking as any).pre_tree,
+      post_tree: (wire.latest_thinking as any).post_tree,
     } : undefined,
     latestThinkingA: wire.latest_thinking_A ? {
       fighter: 'A',
@@ -89,6 +91,8 @@ export function mapJob(wire: JobWireResponse): SimulationJob {
       interval_index: wire.latest_thinking_A.interval_index,
       decision: wire.latest_thinking_A.decision,
       valid_20_words: wire.latest_thinking_A.valid_20_words,
+      pre_tree: (wire.latest_thinking_A as any).pre_tree,
+      post_tree: (wire.latest_thinking_A as any).post_tree,
     } : undefined,
     latestThinkingB: wire.latest_thinking_B ? {
       fighter: 'B',
@@ -101,6 +105,8 @@ export function mapJob(wire: JobWireResponse): SimulationJob {
       interval_index: wire.latest_thinking_B.interval_index,
       decision: wire.latest_thinking_B.decision,
       valid_20_words: wire.latest_thinking_B.valid_20_words,
+      pre_tree: (wire.latest_thinking_B as any).pre_tree,
+      post_tree: (wire.latest_thinking_B as any).post_tree,
     } : undefined,
     thinkingHistory: Array.isArray(wire.thinking_history) ? wire.thinking_history.map(t => ({
       fighter: t.fighter || 'A',
@@ -113,6 +119,8 @@ export function mapJob(wire: JobWireResponse): SimulationJob {
       interval_index: t.interval_index,
       decision: t.decision,
       valid_20_words: t.valid_20_words,
+      pre_tree: (t as any).pre_tree,
+      post_tree: (t as any).post_tree,
     })) : undefined,
     roundSummary: wire.round_summary,
     roundSummaries: wire.round_summaries,

@@ -163,7 +163,7 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
         const target = confirmModal.resetTarget || 'all';
         const res = await api.resetMemory(adminToken.trim(), target);
         setActionNotice(
-          `Memory Reset complete: Cleared ${res.reset_libraries} move libraries and interval/syntax logs. Runs history was preserved.`,
+          `Memory Reset complete for ${res.target}. Cleared interval records and syntax history. Runs history was preserved.`,
         );
       } else if (confirmModal.type === 'purge-all') {
         const res = await api.purgeAllDatabase(adminToken.trim());

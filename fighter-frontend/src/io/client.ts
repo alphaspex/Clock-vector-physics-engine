@@ -250,7 +250,7 @@ export const api = {
   resetMemory: async (
     adminToken: string,
     target: 'A' | 'B' | 'all' = 'all',
-  ): Promise<{ ok: boolean; deleted_notes: number; reset_libraries: number; target: string }> => {
+  ): Promise<{ ok: boolean; target: string }> => {
     return request<DbResetMemoryWireResponse>('/admin/db/reset-memory', {
       method: 'POST',
       body: { target },

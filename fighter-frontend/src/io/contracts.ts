@@ -143,7 +143,6 @@ export interface DbDeleteWireResponse {
 
 export interface DbResetMemoryWireResponse {
   ok: boolean;
-  reset_libraries: number;
   target: string;
   error?: string;
 }

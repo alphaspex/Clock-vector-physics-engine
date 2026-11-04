@@ -474,7 +474,7 @@ function ThinkingHeroCard({
   const hasText = Boolean(item?.text);
   const isFallback = Boolean(item?.isFallback);
   const wordCount = item?.wordCount ?? (item?.text ? item.text.split(/\s+/).filter(Boolean).length : 0);
-  const is20Words = wordCount === 20;
+  const isValidWordCount = wordCount >= 15 && wordCount <= 30;
 
   return (
     <section
@@ -571,20 +571,20 @@ function ThinkingHeroCard({
             <span
               style={{
                 fontSize: 11,
-                color: is20Words ? '#4ade80' : isFallback ? '#ffb347' : '#999',
-                background: is20Words
+                color: isValidWordCount ? '#4ade80' : isFallback ? '#ffb347' : '#999',
+                background: isValidWordCount
                   ? 'rgba(74, 222, 128, 0.1)'
                   : isFallback
                   ? 'rgba(255, 179, 71, 0.1)'
                   : 'rgba(255, 255, 255, 0.05)',
                 padding: '4px 8px',
                 borderRadius: 4,
-                border: is20Words
+                border: isValidWordCount
                   ? '1px solid rgba(74, 222, 128, 0.25)'
                   : '1px solid rgba(255, 255, 255, 0.08)',
               }}
             >
-              {isFallback ? `Raw Response (${wordCount} words)` : `${wordCount} words ${is20Words ? '(Exact 20)' : ''}`}
+              {isFallback ? `Raw Response (${wordCount} words)` : `${wordCount} words ${isValidWordCount ? '(Target: 15-30)' : ''}`}
             </span>
           )}
 
