@@ -709,6 +709,23 @@ function ThinkingHeroCard({
                   SIMULATION ACTIVE
                 </span>
               )}
+              {isFallback && (
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: '#f59e0b',
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    padding: '1px 6px',
+                    borderRadius: 3,
+                  }}
+                >
+                  FALLBACK
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
               <span style={{ fontSize: 11, color: '#888' }}>
