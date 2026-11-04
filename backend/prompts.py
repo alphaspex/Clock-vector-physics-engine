@@ -134,7 +134,7 @@ def practice_system(info, round_summaries=None):
         "ONE-MOVE LEARNING RULES:\n"
         "1. FOCUS: Each session has one specific goal (e.g., 'recovery').\n"
         "2. ITERATE: If a move fails, EDIT its joint angles and timing in the next trial. Do not rename it.\n"
-        "3. MASTERY: A move is MASTERED after 3 consecutive successful trials. Only mastered moves can be used in chains.\n"
+        "3. MASTERY: A move is MASTERED after 1 successful trial. Only mastered moves can be used in chains.\n"
         "4. CHAINS: You can only create 'chain NAME = a, b' if 'a' and 'b' are already in your MASTERED_MOVES list.\n"
         "5. DIAGNOSE: Use the physical diagnostics from the previous round to refine your motor rotations.\n"
         "\n"
@@ -168,20 +168,30 @@ def fight_system(info, round_summaries=None, me="A"):
 
 
 def round_summary_system():
-    """System prompt for end-of-round summary generation (Section 12)."""
+    """System prompt for end-of-round summary generation with self-assessment."""
     return (
-        "You are an expert combat analyst. Read the chronological 20-word interval descriptions from your completed round and write a concise natural-language summary explaining:\n"
-        "1. WHAT I DID - the important actions and results.\n"
-        "2. WHAT I FAILED AT - the important mistakes, failures, or missed opportunities.\n"
-        "3. WHAT I SHOULD HAVE DONE - what would have been a better response.\n"
-        "Keep the summary concise, direct, and actionable for your future self."
+        "You are an expert combat analyst and judge. Review the chronological 20-word interval descriptions and the FINAL PHYSICAL STATE REPORT from your completed round.\n"
+        "Write a concise 3-part summary:\n"
+        "1. WHAT I DID - actions and results.\n"
+        "2. WHAT I FAILED AT - mistakes or missed opportunities.\n"
+        "3. WHAT I SHOULD HAVE DONE - better response or adjustments.\n\n"
+        "CRITICAL SELF-ASSESSMENT:\n"
+        "After your summary, evaluate if you met your goal based on the physical report data.\n"
+        "Conclude your response with exactly one of the following lines:\n"
+        "RESULT: SUCCESS (if physical criteria were met)\n"
+        "RESULT: FAILED (if physical criteria were not met)\n"
+        "Keep the summary concise and direct."
     )
 
 
-def round_summary_user(interval_descriptions):
-    """User prompt providing the full round's interval descriptions."""
-    lines = ["Here are your chronological interval descriptions from the completed round:"]
+def round_summary_user(interval_descriptions, physical_report=""):
+    """User prompt providing interval descriptions and physical telemetry."""
+    lines = ["Here are your chronological interval descriptions:"]
     for i, desc in enumerate(interval_descriptions, 1):
         lines.append(f"Interval {i}: {desc}")
-    lines.append("\nWrite your 3-part round summary now.")
+    
+    if physical_report:
+        lines.append("\n" + physical_report)
+        
+    lines.append("\nWrite your 3-part summary and final RESULT judgment now.")
     return "\n".join(lines)

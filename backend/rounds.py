@@ -112,45 +112,48 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
                              frame=st.frame, max_frame=max_frame, percent=pct))
 
-    # Evaluate practice result
-    eval_res = practice_eval.evaluate_goal(goal_id, st, spec, 0)
+    total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
+
+    # Evaluate practice result via physical report for AI summary
+    phys_report = practice_eval.get_physical_report(goal_id, st, spec, 0)
     
-    # Update mastery streak
+    # Generate end-of-round summary from full round interval descriptions
+    # AI will decide success/failure based on telemetry provided in phys_report
+    round_summary = ""
+    ai_success = False
+    
+    if interval_history:
+        try:
+            sum_ans = ask(prompts.round_summary_system(), prompts.round_summary_user(interval_history, phys_report))
+            _add(usage, sum_ans.get("usage"))
+            round_summary = sum_ans.get("text", "").strip()
+            
+            # Parse AI judgment: RESULT: SUCCESS or RESULT: FAILED
+            if "RESULT: SUCCESS" in round_summary.upper():
+                ai_success = True
+        except Exception as e:
+            round_summary = f"Summary generation failed: {repr(e)}"
+
+    # Update mastery based on AI judgment
     mastered_moves = lib.get("mastered_moves", {})
-    target_move_name = goal_id # Simple mapping: goal_id is the move name
-    
+    target_move_name = goal_id
     move_status = mastered_moves.get(target_move_name, {"streak": 0, "mastered": False})
-    if eval_res["success"]:
-        move_status["streak"] += 1
-        if move_status["streak"] >= 3:
-            move_status["mastered"] = True
+    
+    if ai_success:
+        move_status["streak"] = 1
+        move_status["mastered"] = True
     else:
         move_status["streak"] = 0
+        move_status["mastered"] = False
         
     mastered_moves[target_move_name] = move_status
     lib["mastered_moves"] = mastered_moves
-
-    total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
-
-    # Generate end-of-round summary from full round interval descriptions
-    # Include physical evaluation in the summary prompt
-    round_summary = ""
-    if interval_history:
-        try:
-            eval_note = f"\nPHYSICAL EVALUATION: {'SUCCESS' if eval_res['success'] else 'FAILED'}\nStreak: {move_status['streak']}/3\nDiagnostics: {eval_res['diagnostics']}"
-            interval_history.append(eval_note)
-            
-            sum_ans = ask(prompts.round_summary_system(), prompts.round_summary_user(interval_history))
-            _add(usage, sum_ans.get("usage"))
-            round_summary = sum_ans.get("text", "").strip()
-        except Exception as e:
-            round_summary = f"Summary generation failed: {repr(e)}"
 
     return dict(
         library=lib, orders=orders, frames=total_replay_frames, events=events, usage=usage, result=None,
         setup=dict(nf=1, gap=3.0, offset_x=0.0), final_p=st.p.copy(),
         interval_descriptions=interval_history, round_summary=round_summary,
-        eval_result=eval_res
+        eval_result={"success": ai_success, "diagnostics": phys_report}
     )
 
 

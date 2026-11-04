@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for the One-Move Learning and Mastery practice system, featuring single-goal practice sessions, physical evaluation feedback loops, versioned move iteration, mastery verification across 3 consecutive successful tests, and strict separation between practice learning and fight execution.",
-  "updatedAt": "2026-11-04T15:11:42.246936966Z",
+  "summary": "Revising the practice system to make the AI the sole judge of its own mastery. Success and mastery status are now determined by parsing the AI's self-generated round summary for a 'RESULT: SUCCESS' tag, rather than using hardcoded mathematical backend checks. The AI is provided with final physical telemetry to inform its judgment.",
+  "updatedAt": "2026-11-04T15:34:40.474989895Z",
   "requestFeedback": true,
   "userFacing": true
 }

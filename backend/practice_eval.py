@@ -1,28 +1,9 @@
-"""PRACTICE_EVAL: Defines physical goals, starting poses, and success criteria for mastery.
+"""PRACTICE_EVAL: Generates physical final state reports for AI self-assessment.
 """
 import numpy as np
-from config import ARENA_R
 
-GOALS = {
-    "recovery": {
-        "name": "Recovery: Chest Grounded to Four-Point Base",
-        "description": "Lift chest from the ground and establish a stable base with both fists.",
-        "initial_pose": "grounded",
-        "min_chest_y": 0.15,  # Radius 0.092, so 0.15 means ~0.06m clearance
-        "require_fists": True,
-        "max_velocity": 0.2,
-    },
-    "jab": {
-        "name": "Jab: Quick Forward Strike",
-        "description": "Extend one arm forward quickly and retract.",
-        "initial_pose": "standing",
-        "min_fist_z": 0.4,
-        "max_fist_y_dev": 0.1,
-    }
-}
-
-def evaluate_recovery(state, spec, f=0):
-    """Evaluates if the fighter is in a stable four-point base."""
+def get_physical_report(goal_id, state, spec, f=0):
+    """Generates a detailed natural-language report of the fighter's final state."""
     i = f * spec.n
     ix = spec.idx
     
@@ -43,37 +24,25 @@ def evaluate_recovery(state, spec, f=0):
     head_y = state.p[i + ix["head"], 1]
     r_head = spec.r[i + ix["head"]]
     head_clearance = head_y - r_head
-    head_safe = head_clearance > 0.1
     
     # Stability (low velocity)
     vel = np.linalg.norm(state.v[i + ix["chest"]])
-    stable = vel < 0.2
     
-    success = (clearance > 0.05) and fistR_ground and fistL_ground and head_safe and stable
+    lines = [f"FINAL PHYSICAL STATE REPORT (GOAL: {goal_id.upper()}):"]
+    lines.append(f"- Chest Ground Clearance: {clearance:.3f} meters")
+    lines.append(f"- Right Fist Status: {'TOUCHING GROUND' if fistR_ground else 'OFF GROUND'}")
+    lines.append(f"- Left Fist Status: {'TOUCHING GROUND' if fistL_ground else 'OFF GROUND'}")
+    lines.append(f"- Head Ground Clearance: {head_clearance:.3f} meters")
+    lines.append(f"- Chest Velocity: {vel:.2f} m/s")
     
-    diagnostics = []
-    if clearance <= 0.05: diagnostics.append(f"Chest too low ({clearance:.3f}m). Push harder with arms.")
-    if not fistR_ground: diagnostics.append("Right fist lost ground contact.")
-    if not fistL_ground: diagnostics.append("Left fist lost ground contact.")
-    if not head_safe: diagnostics.append("Head is dangerously close to the ground.")
-    if not stable: diagnostics.append(f"Fighter is sliding or falling (vel={vel:.2f}m/s).")
-    
-    return {
-        "success": success,
-        "metrics": {
-            "chest_clearance": float(clearance),
-            "fistR_ground": bool(fistR_ground),
-            "fistL_ground": bool(fistL_ground),
-            "head_safe": bool(head_safe),
-            "velocity": float(vel)
-        },
-        "diagnostics": " ".join(diagnostics) if diagnostics else "Stable four-point base achieved."
-    }
-
-def evaluate_goal(goal_id, state, spec, f=0):
     if goal_id == "recovery":
-        return evaluate_recovery(state, spec, f)
-    return {"success": False, "diagnostics": f"Unknown goal: {goal_id}", "metrics": {}}
+        lines.append("\nSUCCESS CRITERIA FOR RECOVERY:")
+        lines.append("- Chest must be lifted clear of the ground (>0.05m).")
+        lines.append("- Both fists must be grounded for support.")
+        lines.append("- Head must be safe and lifted.")
+        lines.append("- Body must be stable (low velocity).")
+        
+    return "\n".join(lines)
 
 def get_initial_pose(goal_id, spec):
     """Returns a modified initial state for specific practice goals."""

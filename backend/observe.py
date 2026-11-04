@@ -147,7 +147,7 @@ def format_saved_library(library):
             
             # Add Mastery tag
             m_info = mastered.get(name, {})
-            m_tag = f" [MASTERED {m_info.get('streak', 0)}/3]" if m_info.get('mastered') else f" [TRAINING {m_info.get('streak', 0)}/3]"
+            m_tag = f" [MASTERED {m_info.get('streak', 0)}/1]" if m_info.get('mastered') else f" [TRAINING {m_info.get('streak', 0)}/1]"
             
             lines.append(f"  MOVE: {name} = {code}{m_tag}")
             lines.append(f"  DESCRIPTION: {desc}")
