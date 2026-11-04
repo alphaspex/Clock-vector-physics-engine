@@ -112,6 +112,7 @@ _DECISION_PRIORITIES = (
     "- After issuing motor rotations, examine the next physical observation. If the expected movement did not happen, identify what physically prevented it and choose a different motor action. Do not assume that issuing a movement means it succeeded.\n"
     "- When recovery fails repeatedly, stop experimenting with unrelated movements. Change the support position, motor rotations, or recovery approach based on the actual contact and movement information.\n"
     "- In your mandatory 20-word [THINKING] block, explicitly diagnose your active priority tier and any physical movement obstructions.\n"
+    "- PHYSICAL FEEDBACK RULE: After every decision, check whether chest height, fist contact and support improved. If not, change the motor rotations. Never repeat an unsuccessful action unchanged.\n"
 )
 
 
