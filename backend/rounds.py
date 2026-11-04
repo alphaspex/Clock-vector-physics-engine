@@ -52,27 +52,23 @@ def _describe_batch(ask_fn, records):
     
     return final_descs, ans.get("usage")
 
-def _decide_with_retry(ask_fn, system, current_tree, fighter_id, decision_idx, spec, st_p):
-    """Handles the 3-attempt AI decision loop with strict validation."""
-    user_prompt = current_tree
+def _decide_once(ask_fn, system, current_tree):
+    """Makes exactly ONE AI decision call without retries. Continues simulation even if error or invalid."""
     usage = dict(prompt=0, completion=0, reasoning=0)
+    ans = ask_fn(system, current_tree)
+    _add_usage(usage, ans.get("usage"))
     
-    for attempt in range(1, 4):
-        ans = ask_fn(system, user_prompt)
-        _add_usage(usage, ans.get("usage"))
+    if ans.get("error"):
+        return None, usage, 1, ""
         
-        if ans.get("error"):
-            continue
-            
-        raw_text = ans.get("text", "")
-        tree_dict = translator.parse_tree(raw_text)
-        is_valid, msg = translator.validate_tree(tree_dict)
+    raw_text = ans.get("text", "")
+    tree_dict = translator.parse_tree(raw_text)
+    is_valid, msg = translator.validate_tree(tree_dict)
+    
+    if is_valid:
+        return tree_dict, usage, 1, raw_text
         
-        if is_valid:
-            return tree_dict, usage, attempt, raw_text
-            
-    # All 3 attempts failed or error
-    return None, usage, 3, ""
+    return tree_dict if tree_dict else None, usage, 1, raw_text
 
 def practice(ask_fn, info, round_summaries, library, interval, seconds=PRACTICE_SECONDS, on_progress=None, task_text="Stand and keep standing", job_id=None):
     spec, st, rn = sim.new_match(1)
@@ -105,7 +101,7 @@ def practice(ask_fn, info, round_summaries, library, interval, seconds=PRACTICE_
         pre_tree = observe.build_fighter_tree(st.p, spec, st.palive, st.lalive, 0, fr, events, last_since, st.frame, st.frame * LIVE_DT, positions_only=True)
 
         # AI DECISION
-        tree_dict, u_dec, attempts, raw_text = _decide_with_retry(ask_fn, system, current_tree, "A", decision_idx, spec, st.p)
+        tree_dict, u_dec, attempts, raw_text = _decide_once(ask_fn, system, current_tree)
         _add_usage(usage, u_dec)
         
         orders_dict = {}
@@ -146,9 +142,9 @@ def practice(ask_fn, info, round_summaries, library, interval, seconds=PRACTICE_
                 post_tree=post_tree
             ))
         
-        # BATCH DESCRIPTION CHECK
-        undescribed = db.get_undescribed_intervals(conn, "A", "practice", limit=7)
-        if len(undescribed) >= 7:
+        # IMMEDIATE DESCRIPTION CHECK
+        undescribed = db.get_undescribed_intervals(conn, "A", "practice", limit=1)
+        if undescribed:
             descs, u_desc = _describe_batch(ask_fn, undescribed)
             _add_usage(usage, u_desc)
             for i, d in enumerate(descs):
@@ -200,7 +196,7 @@ def fight(ask_fns, info, round_summaries, libs, interval, seconds=FIGHT_SECONDS,
             prompts_list = [prompts.fight_system("AB"[f], my_trees[f], enemy_trees[f], fight_memories[f], fight_summaries[f]) for f in range(2)]
 
             # CONCURRENT AI CALLS
-            futs = [ex.submit(_decide_with_retry, ask_fns[f], prompts_list[f], my_trees[f], "AB"[f], decision_idx, spec, st.p) for f in range(2)]
+            futs = [ex.submit(_decide_once, ask_fns[f], prompts_list[f], my_trees[f]) for f in range(2)]
             results = [f.result() for f in futs]
             
             for f in range(2):
@@ -241,10 +237,10 @@ def fight(ask_fns, info, round_summaries, libs, interval, seconds=FIGHT_SECONDS,
                         post_tree=post_tree
                     ))
 
-            # BATCH DESCRIPTION CHECK
+            # IMMEDIATE DESCRIPTION CHECK
             for f in range(2):
-                undescribed = db.get_undescribed_intervals(conn, "AB"[f], "fight", limit=7)
-                if len(undescribed) >= 7:
+                undescribed = db.get_undescribed_intervals(conn, "AB"[f], "fight", limit=1)
+                if undescribed:
                     descs, u_desc = _describe_batch(ask_fns[f], undescribed)
                     _add_usage(usage, u_desc)
                     for i, d in enumerate(descs):
