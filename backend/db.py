@@ -621,25 +621,37 @@ def reset_memory(conn, target="all"):
 def one_time_migration(conn):
     """One-time reset of the memory system to the new schema."""
     # We check if a marker exists
-    marker = get_setting(conn, "memory_migration_v2")
-    if marker == "done":
+    try:
+        marker = get_setting(conn, "memory_migration_v2")
+        if marker == "done":
+            return
+    except:
+        # If settings table doesn't exist, we'll hit it in init() anyway
         return
 
     # Delete old systems
-    _x(conn, "DELETE FROM library")
-    _x(conn, "DELETE FROM interval_descriptions")
-    _x(conn, "DELETE FROM round_summaries")
-    _x(conn, "DELETE FROM move_history")
-    
-    # Add columns if they don't exist (for safety if table already exists)
     try:
-        _x(conn, "ALTER TABLE interval_descriptions ADD COLUMN pre_tree TEXT")
-        _x(conn, "ALTER TABLE interval_descriptions ADD COLUMN post_tree TEXT")
+        _x(conn, "DELETE FROM library")
+        _x(conn, "DELETE FROM interval_descriptions")
+        _x(conn, "DELETE FROM round_summaries")
+        _x(conn, "DELETE FROM move_history")
+        conn.commit()
     except:
-        pass # Already exists or sqlite column error (handled by CREATE TABLE IF NOT EXISTS in init)
+        conn.rollback()
+    
+    # Add columns if they don't exist
+    for col in ["pre_tree", "post_tree"]:
+        try:
+            _x(conn, f"ALTER TABLE interval_descriptions ADD COLUMN {col} TEXT")
+            conn.commit()
+        except:
+            conn.rollback() # Clear aborted transaction state for Postgres
 
-    set_setting(conn, "memory_migration_v2", "done")
-    conn.commit()
+    try:
+        set_setting(conn, "memory_migration_v2", "done")
+        conn.commit()
+    except:
+        conn.rollback()
 
 
 def set_setting(conn, key, val):
