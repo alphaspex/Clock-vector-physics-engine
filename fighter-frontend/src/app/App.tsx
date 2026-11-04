@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Activity,
+  Brain,
   Database,
   Expand,
   Film,
@@ -21,13 +22,14 @@ import ControlRoomPanel from '../features/monitoring/ControlRoomPanel';
 import DatabaseManager from '../features/database/DatabaseManager';
 import LiveLogsPanel from '../features/logs/LiveLogsPanel';
 import ReplayGeneratorPanel from '../features/history/ReplayGeneratorPanel';
+import LiveThinkingPanel from '../features/thinking/LiveThinkingPanel';
 import { usePlayback } from '../features/playback/usePlayback';
 import ThreeSketchViewer from '../viewer/ThreeSketchViewer';
 import StatusDot from '../components/StatusDot';
 import { getConfiguredApiUrl } from '../io/client';
 import { useSimulation } from './useSimulation';
 
-type AppTab = 'tv' | 'control_room' | 'compilation' | 'database' | 'live_logs';
+type AppTab = 'tv' | 'thinking' | 'control_room' | 'compilation' | 'database' | 'live_logs';
 
 export default function App() {
   const simulation = useSimulation();
@@ -95,6 +97,17 @@ export default function App() {
           >
             <Monitor size={14} />
             <span>3D TV Replay</span>
+          </button>
+          <button
+            type="button"
+            className={`topbar-nav__item ${activeTab === 'thinking' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('thinking')}
+          >
+            <Brain size={14} />
+            <span>AI Thinking</span>
+            {simulation.jobs.some((j) => j.state === 'running') && (
+              <span className="live-indicator-dot live-indicator-dot--pulse" />
+            )}
           </button>
           <button
             type="button"
@@ -320,6 +333,15 @@ export default function App() {
               <span>CAMERA: ORBIT / PLAYBACK: {playback.playing ? 'RUNNING' : 'PAUSED'}</span>
             </footer>
           </section>
+        </div>
+      )}
+
+      {activeTab === 'thinking' && (
+        <div className="section-container">
+          <LiveThinkingPanel
+            jobs={simulation.jobs}
+            onOpenLauncher={() => setActiveTab('tv')}
+          />
         </div>
       )}
 

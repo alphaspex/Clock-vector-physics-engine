@@ -65,14 +65,21 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
                 on_progress(dict(stage="ai_error", decision=decision_idx, error=ans["error"]))
         else:
             lib, steps, errs, thinking_text, wc = _decide(ans, lib, info)
+            raw_text = (ans.get("text") or "").strip()
+            display_text = thinking_text if thinking_text else raw_text
+            is_fallback = not bool(thinking_text)
             if thinking_text:
                 interval_history.append(thinking_text)
+            elif raw_text:
+                interval_history.append(raw_text)
 
             if on_progress:
                 on_progress(dict(
                     stage="decision", decision=decision_idx, target_decisions=target_decisions,
                     frame=st.frame, max_frame=max_frame, percent=pct,
-                    thinking=thinking_text, word_count=wc, fighter="A",
+                    thinking=display_text, raw_text=raw_text, is_fallback=is_fallback,
+                    word_count=wc if not is_fallback else len(display_text.split()), fighter="A",
+                    time_sec=round(st.frame * LIVE_DT, 2),
                 ))
 
             replay_frame = int(round(st.frame * LIVE_DT * FPS))
@@ -156,14 +163,21 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
                     continue
 
                 libs[f], steps, errs[f], thinking_text, wc = _decide(ans, libs[f], info)
+                raw_text = (ans.get("text") or "").strip()
+                display_text = thinking_text if thinking_text else raw_text
+                is_fallback = not bool(thinking_text)
                 if thinking_text:
                     interval_histories[f].append(thinking_text)
+                elif raw_text:
+                    interval_histories[f].append(raw_text)
 
                 if on_progress:
                     on_progress(dict(
                         stage="decision", decision=decision_idx, target_decisions=target_decisions,
                         frame=st.frame, max_frame=max_frame, percent=pct,
-                        thinking=thinking_text, word_count=wc, fighter="AB"[f],
+                        thinking=display_text, raw_text=raw_text, is_fallback=is_fallback,
+                        word_count=wc if not is_fallback else len(display_text.split()), fighter="AB"[f],
+                        time_sec=round(st.frame * LIVE_DT, 2),
                     ))
 
                 replay_frame = int(round(st.frame * LIVE_DT * FPS))

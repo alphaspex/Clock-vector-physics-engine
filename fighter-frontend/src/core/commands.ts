@@ -73,6 +73,8 @@ export interface SimulationJob {
   usage?: { prompt: number; completion: number; reasoning: number };
   errorMessage?: string;
   latestThinking?: ThinkingItem;
+  latestThinkingA?: ThinkingItem;
+  latestThinkingB?: ThinkingItem;
   thinkingHistory?: ThinkingItem[];
   roundSummary?: string;
   roundSummaries?: string[];
@@ -81,9 +83,13 @@ export interface SimulationJob {
 export interface ThinkingItem {
   fighter: string;
   text: string;
+  rawText?: string;
+  isFallback?: boolean;
   wordCount?: number;
   frame?: number;
+  timeSec?: number;
   interval_index?: number;
+  decision?: number;
   valid_20_words?: boolean;
 }
 

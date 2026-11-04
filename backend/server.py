@@ -267,8 +267,22 @@ def _run_fight(jid, p):
                 if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
                 if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
                 if "thinking" in ev and ev["thinking"]:
-                    t_item = dict(fighter=ev.get("fighter", "AB"[0]), text=ev["thinking"], word_count=ev.get("word_count", 0), frame=ev.get("frame", 0))
+                    f_letter = ev.get("fighter", "A")
+                    t_item = dict(
+                        fighter=f_letter,
+                        text=ev["thinking"],
+                        raw_text=ev.get("raw_text", ""),
+                        is_fallback=ev.get("is_fallback", False),
+                        word_count=ev.get("word_count", 0),
+                        frame=ev.get("frame", 0),
+                        time_sec=ev.get("time_sec", round(ev.get("frame", 0) * LIVE_DT, 2)),
+                        decision=ev.get("decision", 0),
+                    )
                     JOBS[jid]["latest_thinking"] = t_item
+                    if f_letter == "A":
+                        JOBS[jid]["latest_thinking_A"] = t_item
+                    elif f_letter == "B":
+                        JOBS[jid]["latest_thinking_B"] = t_item
                     JOBS[jid].setdefault("thinking_history", []).append(t_item)
         stg = ev.get("stage")
         if stg == "decision":
