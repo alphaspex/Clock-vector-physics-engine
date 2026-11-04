@@ -5,6 +5,7 @@ fight(asks, info, notes, libs, interval, seconds, gap, offset_x) OUT: same, with
 """
 import concurrent.futures as cf
 import math
+import re
 from config import *
 import sim, moves, observe, prompts, practice_eval
 try:
@@ -51,6 +52,8 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
     target_decisions = max(1, int(math.ceil(seconds / interval)))
     decision_idx = 0
     interval_history = []
+    last_transitions = None
+    last_command = None
 
     while st.frame < max_frame:
         decision_idx += 1
@@ -61,6 +64,7 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             st.frame * LIVE_DT, events, since=last, enemy=False,
             total_seconds=seconds, errors=errs, library=lib,
             interval_history=interval_history[-5:],
+            transitions=last_transitions,
         )
 
         ans = ask(system, obs)
@@ -73,7 +77,23 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
                 on_progress(dict(stage="ai_error", decision=decision_idx, error=ans["error"]))
         else:
             lib, steps, errs, thinking_text, wc = _decide(ans, lib, info)
+            
+            # --- MOTOR KNOWLEDGE EXTRACTION ---
+            # Extract motor knowledge findings if the AI used the expected format
+            # Format: MOTOR KNOWLEDGE: AXIS [axis] DIRECTION [dir] FINDING [finding]
             raw_text = (ans.get("text") or "").strip()
+            findings = re.findall(r"MOTOR KNOWLEDGE:\s*AXIS\s+(.*?)\s+DIRECTION\s+(.*?)\s+FINDING\s+(.*)", raw_text, re.I)
+            if findings:
+                knowledge = lib.get("motor_knowledge", {})
+                for axis, direction, finding in findings:
+                    axis = axis.strip().lower()
+                    direction = direction.strip().lower()
+                    finding = finding.strip()
+                    knowledge.setdefault(axis, {}).setdefault(direction, []).append(finding)
+                    # Deduplicate and limit
+                    knowledge[axis][direction] = list(dict.fromkeys(knowledge[axis][direction]))[-5:]
+                lib["motor_knowledge"] = knowledge
+
             display_text = thinking_text if thinking_text else raw_text
             is_fallback = not bool(thinking_text)
             if thinking_text:
@@ -93,8 +113,17 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             replay_frame = int(round(st.frame * LIVE_DT * FPS))
             orders.append(dict(frame=replay_frame, f=0, text=ans["text"][:800], steps=steps))
             rn = sim.give_orders(rn, 0, steps)
+            last_command = raw_text[:200] + "..." if len(raw_text) > 200 else raw_text
             if server_logs:
                 server_logs.emit("DEBUG", "SIMULATION", f"Practice live frame {st.frame}: compiled {len(steps)} motor actuation steps", errors=errs)
+
+        # CAPTURE BEFORE STATE
+        fr_before = observe.torso_frame(st.p, spec, 0)
+        before_data = dict(
+            p=st.p.copy(), v=st.v.copy(), spec=spec, palive=st.palive.copy(), 
+            lalive=st.lalive.copy(), f=0, fr=fr_before, events=list(events), 
+            since=last, frame=st.frame, sim_time=st.frame * LIVE_DT
+        )
 
         last = st.frame * LIVE_DT
         ticks = min(int(round(interval * LIVE_FPS)), max_frame - st.frame)
@@ -106,6 +135,17 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             if server_logs and rec:
                 for r in rec:
                     server_logs.emit("INFO", "PHYSICS", f"Practice Live Frame {st.frame} impact: {r.get('event', 'touch')}", **r)
+
+        # CAPTURE AFTER STATE
+        fr_after = observe.torso_frame(st.p, spec, 0)
+        after_data = dict(
+            p=st.p.copy(), v=st.v.copy(), spec=spec, palive=st.palive.copy(), 
+            lalive=st.lalive.copy(), f=0, fr=fr_after, events=list(events), 
+            since=last, frame=st.frame, sim_time=st.frame * LIVE_DT
+        )
+        
+        if last_command:
+            last_transitions = dict(command=last_command, before=before_data, after=after_data)
 
         pct = min(100.0, round((st.frame / max_frame) * 100, 1))
         if on_progress:

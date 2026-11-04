@@ -28,10 +28,18 @@ def get_physical_report(goal_id, state, spec, f=0):
     # Stability (low velocity)
     vel = np.linalg.norm(state.v[i + ix["chest"]])
     
+    # Check if fists are forward of shoulders
+    shR_z = state.p[i + ix["shR"], 2]
+    shL_z = state.p[i + ix["shL"], 2]
+    fistR_z = state.p[i + ix["fistR"], 2]
+    fistL_z = state.p[i + ix["fistL"], 2]
+    fists_forward = (fistR_z > shR_z) and (fistL_z > shL_z)
+    
     lines = [f"FINAL PHYSICAL STATE REPORT (GOAL: {goal_id.upper()}):"]
     lines.append(f"- Chest Ground Clearance: {clearance:.3f} meters")
     lines.append(f"- Right Fist Status: {'TOUCHING GROUND' if fistR_ground else 'OFF GROUND'}")
     lines.append(f"- Left Fist Status: {'TOUCHING GROUND' if fistL_ground else 'OFF GROUND'}")
+    lines.append(f"- Fists Forward of Shoulders: {'YES' if fists_forward else 'NO'}")
     lines.append(f"- Head Ground Clearance: {head_clearance:.3f} meters")
     lines.append(f"- Chest Velocity: {vel:.2f} m/s")
     
@@ -39,6 +47,7 @@ def get_physical_report(goal_id, state, spec, f=0):
         lines.append("\nSUCCESS CRITERIA FOR RECOVERY:")
         lines.append("- Chest must be lifted clear of the ground (>0.05m).")
         lines.append("- Both fists must be grounded for support.")
+        lines.append("- Fists must be forward relative to the shoulders.")
         lines.append("- Head must be safe and lifted.")
         lines.append("- Body must be stable (low velocity).")
         

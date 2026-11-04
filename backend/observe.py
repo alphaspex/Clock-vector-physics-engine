@@ -511,19 +511,106 @@ def format_motor_state(spec, st, f, palive=None, lalive=None):
     return "\n".join(lines)
 
 
-def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=True, total_seconds=60.0, errors=None, library=None, interval_history=None):
+def build_detailed_pose_tree(p, v, spec, palive, lalive, f, fr, events, since, frame, sim_time, label="BODY POSE"):
+    """
+    Builds a detailed body pose tree including exact metres for small movement detection.
+    Used for BEFORE/AFTER comparisons in Practice Mode.
+    """
+    i = f * spec.n
+    ix = spec.idx
+    nl = spec.nl
+    lidx = spec.lidx
+    f_char = "AB"[f]
+    right, up, fwd = fr
+    p_chest = p[i + ix["chest"]]
+    
+    chest_y = float(p_chest[1])
+    chest_r = spec.r[i + ix["chest"]]
+    chest_height = chest_y - chest_r
+    
+    def rel_pos_detailed(ball_name):
+        b_idx = i + ix[ball_name]
+        d = p[b_idx] - p_chest
+        dx = float(np.dot(d, right))
+        dy = float(np.dot(d, up))
+        dz = float(np.dot(d, fwd))
+        is_ground = (p[b_idx, 1] - spec.r[b_idx]) <= 0.05
+        words = translate_3d_position(dx, dy, dz, is_grounded=is_ground)
+        return f"{words} (Rel: {dx:+.3f}, {dy:+.3f}, {dz:+.3f}m)"
+
+    def ball_status(ball_name):
+        b_idx = i + ix[ball_name]
+        return "INTACT" if palive[b_idx] else "DESTROYED"
+
+    def joint_status(j_name):
+        lid = f * nl + lidx[j_name]
+        return "INTACT" if lalive[lid] else "DESTROYED"
+
+    tree = [
+        f"=== {label.upper()} ===",
+        f"FRAME: {frame} | TIME: {sim_time:.2f}s",
+        f"CHEST HEIGHT: {chest_height:.3f}m",
+        "",
+        "CHEST",
+        f"  STATUS: {ball_status('chest')}",
+        "  POSITION: ORIGIN",
+        f"  CURRENT CONTACTS: {_get_current_contacts('chest', p, spec, palive, lalive, f)}",
+        "",
+        "HEAD",
+        f"  STATUS: {ball_status('head')}",
+        f"  POSITION: {rel_pos_detailed('head')}",
+        f"  CURRENT CONTACTS: {_get_current_contacts('head', p, spec, palive, lalive, f)}",
+        "",
+        "RIGHT_ARM",
+        "  SHOULDER",
+        f"    STATUS: {ball_status('shR')}",
+        f"    POSITION: {rel_pos_detailed('shR')}",
+        f"    CONTACTS: {_get_current_contacts('shR', p, spec, palive, lalive, f)}",
+        "  ELBOW",
+        f"    STATUS: {ball_status('elR')}",
+        f"    POSITION: {rel_pos_detailed('elR')}",
+        f"    CONTACTS: {_get_current_contacts('elR', p, spec, palive, lalive, f)}",
+        "  FIST",
+        f"    STATUS: {ball_status('fistR')}",
+        f"    POSITION: {rel_pos_detailed('fistR')}",
+        f"    CONTACTS: {_get_current_contacts('fistR', p, spec, palive, lalive, f)}",
+        "",
+        "LEFT_ARM",
+        "  SHOULDER",
+        f"    STATUS: {ball_status('shL')}",
+        f"    POSITION: {rel_pos_detailed('shL')}",
+        f"    CONTACTS: {_get_current_contacts('shL', p, spec, palive, lalive, f)}",
+        "  ELBOW",
+        f"    STATUS: {ball_status('elL')}",
+        f"    POSITION: {rel_pos_detailed('elL')}",
+        f"    CONTACTS: {_get_current_contacts('elL', p, spec, palive, lalive, f)}",
+        "  FIST",
+        f"    STATUS: {ball_status('fistL')}",
+        f"    POSITION: {rel_pos_detailed('fistL')}",
+        f"    CONTACTS: {_get_current_contacts('fistL', p, spec, palive, lalive, f)}",
+    ]
+    return "\n".join(tree)
+
+
+def format_motor_knowledge(knowledge):
+    """Formats the persistent motor knowledge memory for the AI."""
+    if not knowledge:
+        return "MOTOR KNOWLEDGE MEMORY: Empty. Perform controlled experiments to learn motor effects."
+    
+    lines = ["MOTOR KNOWLEDGE MEMORY:"]
+    for axis, data in knowledge.items():
+        lines.append(f"  AXIS: {axis}")
+        for direction, findings in data.items():
+            lines.append(f"    DIRECTION: {direction}")
+            for entry in findings:
+                lines.append(f"      - {entry}")
+    return "\n".join(lines)
+
+
+def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=True, total_seconds=60.0, errors=None, library=None, interval_history=None, transitions=None):
     """
     Builds the complete USER INPUT for one AI interval (Section 13).
-    Includes:
-      - Current frame/tick and simulation time
-      - Current interval-history descriptions (last 5 intervals)
-      - MY COMPLETE BODY TREE
-      - ENEMY BODY TREE (in fight mode)
-      - Movement information
-      - Motor state
-      - Environment and timing information
-      - Relevant command errors
-      - Full saved move and chain definitions
+    Extended for Practice Mode with BEFORE/AFTER poses and MOTOR KNOWLEDGE.
     """
     fr = torso_frame(p, spec, f)
     chest_pos = p[f * spec.n + spec.idx["chest"]]
@@ -544,7 +631,15 @@ def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=
         for e in errors[:5]:
             parts.append(f"  ERROR: {e}")
 
-    # 3. Interval description history (Five-interval context rule)
+    # 3. Practice Mode: BEFORE/AFTER transitions
+    if not enemy and transitions:
+        parts.append("\n=== POSE-TO-POSE LEARNING (PREVIOUS MOVE) ===")
+        parts.append(f"PREVIOUS COMMAND: {transitions.get('command', 'None')}")
+        parts.append("\n" + build_detailed_pose_tree(**transitions['before'], label="BEFORE POSE"))
+        parts.append("\n" + build_detailed_pose_tree(**transitions['after'], label="AFTER POSE"))
+        parts.append("\nLEARNING TASK: Compare BEFORE and AFTER poses to understand the physical result of your command.")
+
+    # 4. Interval description history (Five-interval context rule)
     parts.append("\n=== INTERVAL DESCRIPTIONS (LAST 5 INTERVALS, OLDEST FIRST) ===")
     if interval_history:
         recent = interval_history[-5:]
@@ -553,24 +648,29 @@ def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=
     else:
         parts.append("No previous interval descriptions yet.")
 
-    # 4. MY COMPLETE BODY TREE
-    parts.append("\n=== MY COMPLETE BODY TREE ===")
+    # 5. MY COMPLETE BODY TREE
+    parts.append("\n=== MY COMPLETE BODY TREE (CURRENT) ===")
     parts.append(build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, st.frame, t))
 
-    # 5. ENEMY BODY TREE (Fight mode only)
+    # 6. ENEMY BODY TREE (Fight mode only)
     if enemy and spec.nf == 2:
         parts.append("\n=== ENEMY BODY TREE ===")
         parts.append(build_enemy_tree(p, spec, f, fr, palive=palive))
 
-    # 6. Movement information
+    # 7. Movement information
     parts.append("\n=== MOVEMENT INFORMATION ===")
     parts.append(format_movement_info(v, spec, f, fr))
 
-    # 7. Motor state
+    # 8. Motor state
     parts.append("\n=== MOTOR STATE ===")
     parts.append(format_motor_state(spec, st, f, palive=palive, lalive=lalive))
 
-    # 8. Saved moves and chains
+    # 9. Practice Mode: Motor Knowledge Memory
+    if not enemy and library:
+        parts.append("\n=== MOTOR KNOWLEDGE MEMORY ===")
+        parts.append(format_motor_knowledge(library.get("motor_knowledge", {})))
+
+    # 10. Saved moves and chains
     if library:
         parts.append("\n=== SAVED MOVES & CHAINS ===")
         parts.append(format_saved_library(library))
