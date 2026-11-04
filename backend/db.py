@@ -615,3 +615,27 @@ def get_setting(conn, key):
     r = _x(conn, "SELECT val FROM settings WHERE key=%s", (key,)).fetchone()
     return r[0] if r else None
 
+
+def purge_all_database_data(conn, active_jobs=()):
+    """Completely purges all data across all tables in the database."""
+    _x(conn, "DELETE FROM notes")
+    _x(conn, "DELETE FROM round_summaries")
+    _x(conn, "DELETE FROM interval_descriptions")
+    _x(conn, "DELETE FROM replays")
+    _x(conn, "DELETE FROM runs")
+    _x(conn, "DELETE FROM library")
+    _x(conn, "DELETE FROM job_events")
+    _x(conn, "DELETE FROM settings")
+
+    # Keep active jobs if running, delete inactive jobs
+    active_set = set(active_jobs)
+    if active_set:
+        ph = ",".join(["%s"] * len(active_set))
+        _x(conn, f"DELETE FROM jobs WHERE id NOT IN ({ph})", tuple(active_set))
+    else:
+        _x(conn, "DELETE FROM jobs")
+
+    conn.commit()
+    return dict(ok=True, message="All database records have been purged successfully.")
+
+

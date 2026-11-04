@@ -163,6 +163,10 @@ def handle(method, path, body, token, ctx):
             rst_res = ctx["db_reset_memory"](target)
             status = 200 if rst_res.get("ok") else 400
             return status, rst_res
+        if parts == ["admin", "db", "purge-all"]:
+            purge_res = ctx["db_purge_all"]()
+            status = 200 if purge_res.get("ok") else 400
+            return status, purge_res
         if parts == ["admin", "config", "set-model"]:
             preset, model = body.get("preset"), body.get("model")
             if preset not in PROVIDERS: return 400, dict(error=f"unknown preset {preset}")

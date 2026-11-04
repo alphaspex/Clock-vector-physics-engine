@@ -437,6 +437,13 @@ def _db_delete_batch(resource, item_ids):
     return res
 
 
+def _db_purge_all():
+    with LOCK:
+        active = [jid for jid, j in JOBS.items() if j.get("status") == "running"]
+        CACHE.clear()
+    return db.purge_all_database_data(_conn(), active_jobs=active)
+
+
 def _memory(ai):
     conn = _conn()
     lib = db.load_library(conn, ai)
@@ -467,6 +474,7 @@ def _ctx():
         db_get=lambda r, iid: db.get_resource_item(_conn(), r, iid),
         db_delete=_db_delete,
         db_delete_batch=_db_delete_batch,
+        db_purge_all=_db_purge_all,
         db_reset_memory=lambda target: db.reset_memory(_conn(), target),
         get_effective_config=_get_effective_config,
         set_model_override=_set_model_override,

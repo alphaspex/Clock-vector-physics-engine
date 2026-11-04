@@ -98,6 +98,22 @@ _MOTOR_RULES = (
     "   forget MOVE_OR_CHAIN_NAME\n"
 )
 
+_DECISION_PRIORITIES = (
+    "DECISION PRIORITIES & STRATEGY EVALUATION RULES:\n"
+    "1. Protect: Keep the head and neck away from dangerous ground contact at all times.\n"
+    "2. Recover: If the chest is grounded, prioritize lifting it.\n"
+    "3. Establish support: Use fist contact and arm position to create a stable base.\n"
+    "4. Stabilize: Stop unwanted sliding and regain control.\n"
+    "5. Move: Only after recovery, attempt crawling and rotation.\n"
+    "6. Fight: When an opponent is present, balance recovery, defense, and attack.\n"
+    "\n"
+    "CRITICAL PHYSICAL ADAPTATION RULES:\n"
+    "- Never repeat a failed physical strategy without a meaningful change.\n"
+    "- After issuing motor rotations, examine the next physical observation. If the expected movement did not happen, identify what physically prevented it and choose a different motor action. Do not assume that issuing a movement means it succeeded.\n"
+    "- When recovery fails repeatedly, stop experimenting with unrelated movements. Change the support position, motor rotations, or recovery approach based on the actual contact and movement information.\n"
+    "- In your mandatory 20-word [THINKING] block, explicitly diagnose your active priority tier and any physical movement obstructions.\n"
+)
+
 
 def _format_round_summaries(summaries, mode_label):
     if not summaries:
@@ -116,6 +132,7 @@ def practice_system(info, round_summaries=None):
         "Save effective moves and chains with descriptions; they carry over to your fights.\n\n"
         + _WORLD_RULES + "\n"
         + _OFFICIAL_BODY_STRUCTURE + "\n"
+        + _DECISION_PRIORITIES + "\n"
         + _POSITION_VOCABULARY + "\n"
         + _MOTOR_RULES + "\n"
         + _format_round_summaries(round_summaries, "Practice")
@@ -130,6 +147,7 @@ def fight_system(info, round_summaries=None, me="A"):
         "Use your saved moves and chains using 'do'.\n\n"
         + _WORLD_RULES + "\n"
         + _OFFICIAL_BODY_STRUCTURE + "\n"
+        + _DECISION_PRIORITIES + "\n"
         + _POSITION_VOCABULARY + "\n"
         + _MOTOR_RULES + "\n"
         + _format_round_summaries(round_summaries, f"Fight (Fighter {me})")

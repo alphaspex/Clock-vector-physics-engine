@@ -258,6 +258,15 @@ export const api = {
     });
   },
 
+  purgeAllDatabase: async (
+    adminToken: string,
+  ): Promise<{ ok: boolean; message: string }> => {
+    return request<{ ok: boolean; message: string }>('/admin/db/purge-all', {
+      method: 'POST',
+      adminToken,
+    });
+  },
+
   // ---- Diagnostic & Configuration Endpoints ----
   getConfig: async (adminToken: string): Promise<Record<string, ProviderConfigWire>> => {
     const response = await request<EffectiveConfigWireResponse>('/admin/config', { adminToken });

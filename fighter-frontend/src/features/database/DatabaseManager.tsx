@@ -37,7 +37,7 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
   // Confirm delete modal state
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean;
-    type: 'single' | 'batch' | 'reset-memory';
+    type: 'single' | 'batch' | 'reset-memory' | 'purge-all';
     targetId?: string | number;
     count: number;
     resourceLabel: string;
@@ -144,19 +144,18 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
   };
 
   const executeDelete = async () => {
-    if (!activeResource) return;
     setError(null);
     setActionNotice(null);
 
     try {
-      if (confirmModal.type === 'single' && confirmModal.targetId !== undefined) {
+      if (confirmModal.type === 'single' && confirmModal.targetId !== undefined && activeResource) {
         const res = await api.deleteDbRecord(
           adminToken.trim(),
           activeResource.key,
           confirmModal.targetId,
         );
         setActionNotice(`Successfully deleted ${res.deleted} record from ${activeResource.label}.`);
-      } else if (confirmModal.type === 'batch') {
+      } else if (confirmModal.type === 'batch' && activeResource) {
         const ids = Array.from(selectedIds);
         const res = await api.deleteDbBatch(adminToken.trim(), activeResource.key, ids);
         setActionNotice(`Successfully deleted ${res.deleted} records from ${activeResource.label}.`);
@@ -166,6 +165,9 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
         setActionNotice(
           `Memory Reset complete: Deleted ${res.deleted_notes} notes and cleared ${res.reset_libraries} move libraries. Runs history was preserved.`,
         );
+      } else if (confirmModal.type === 'purge-all') {
+        const res = await api.purgeAllDatabase(adminToken.trim());
+        setActionNotice(`Database Purge complete: ${res.message}`);
       }
       setConfirmModal({ open: false, type: 'single', count: 0, resourceLabel: '' });
       await loadCatalog();
@@ -204,6 +206,21 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
             }
           >
             <RotateCcw size={13} /> Reset Memory (All)
+          </button>
+          <button
+            type="button"
+            className="button button--danger"
+            onClick={() =>
+              setConfirmModal({
+                open: true,
+                type: 'purge-all',
+                count: 0,
+                resourceLabel: 'Entire Database',
+              })
+            }
+            title="Purge all tables and records from the database"
+          >
+            <Trash2 size={13} /> Delete All DB Data
           </button>
           <button
             type="button"
@@ -440,7 +457,19 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
             </div>
 
             <div className="modal-dialog__body">
-              {confirmModal.type === 'reset-memory' ? (
+              {confirmModal.type === 'purge-all' ? (
+                <>
+                  <p>
+                    Are you sure you want to <strong>PURGE ALL DATABASE DATA</strong>?
+                  </p>
+                  <p className="modal-note text-bad">
+                    This will permanently delete ALL fight and practice run histories, replays, interval descriptions, AI round summaries, notes, learned move libraries, jobs, and event streams.
+                  </p>
+                  <p className="modal-note font-bold text-bad mt-2">
+                    THIS ACTION IS COMPLETELY IRREVERSIBLE.
+                  </p>
+                </>
+              ) : confirmModal.type === 'reset-memory' ? (
                 <>
                   <p>
                     Are you sure you want to <strong>Reset Memory</strong>?
