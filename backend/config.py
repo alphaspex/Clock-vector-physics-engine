@@ -33,8 +33,8 @@ PROVIDERS = {
     "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open-1026", key_env="BASETEN_API_KEY", effort=False, role="developer", endpoint="/chat/completions"),
 }
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # "none" is rejected by Muse Spark (HTTP 400)
-PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "high", "minimal", "low"
-PRACTICE_MAX_TOKENS, FIGHT_MAX_TOKENS, NOTE_MAX_TOKENS = 6000, 1500, 800   # reasoning + visible text together
+PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "medium", "minimal", "low"
+PRACTICE_MAX_TOKENS, FIGHT_MAX_TOKENS, NOTE_MAX_TOKENS = 2048, 1500, 800   # reasoning + visible text together
 NOTE_MAX_CHARS = 800      # about 200 tokens
 
 # ---- Round durations (minutes in UI, converted to seconds server-side) ----

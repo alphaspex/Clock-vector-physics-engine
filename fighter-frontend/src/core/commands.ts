@@ -16,6 +16,8 @@ export interface PracticeCommand {
   provider: ModelProvider;
   thinkingIntervalSeconds: number;
   reasoning: ReasoningMode;
+  durationMinutes: number;
+  taskText: string;
 }
 
 export interface FighterCommand {
@@ -27,6 +29,19 @@ export interface FightCommand {
   fighterA: FighterCommand;
   fighterB: FighterCommand;
   thinkingIntervalSeconds: number;
+  durationMinutes: number;
+}
+
+export type ReplayStatus = 'not_compiled' | 'queued' | 'compiling' | 'validating' | 'ready' | 'failed';
+
+export interface ReplayProgress {
+  stage?: string;
+  framesGenerated?: number;
+  expectedFrames?: number;
+  percent?: number;
+  elapsedMs?: number;
+  startedAt?: number;
+  error?: string;
 }
 
 /** Stable app-facing run item; server fields are mapped before UI receives it. */
@@ -35,15 +50,96 @@ export interface SavedRun {
   createdAt: string;
   result: string | null;
   frameCount: number;
+  replayStatus: ReplayStatus;
+  replayProgress?: ReplayProgress;
 }
 
 /** Normalized job state; the UI/controller do not read backend job JSON keys. */
 export interface SimulationJob {
+  id: string;
+  kind: SimulationKind;
   state: 'running' | 'done' | 'error';
+  stage: string;
+  phase?: string;
   runNumber?: number;
+  result?: string | null;
+  percent?: number;
+  decision?: number;
+  targetDecisions?: number;
+  frame?: number;
+  maxFrame?: number;
+  elapsedMs?: number;
+  startedAt?: number;
+  createdAt?: string;
+  params?: Record<string, unknown>;
+  usage?: { prompt: number; completion: number; reasoning: number };
+  errorMessage?: string;
+  latestThinking?: ThinkingItem;
+  latestThinkingA?: ThinkingItem;
+  latestThinkingB?: ThinkingItem;
+  thinkingHistory?: ThinkingItem[];
+  roundSummary?: string;
+  roundSummaries?: string[];
+}
+
+export interface ThinkingItem {
+  fighter: string;
+  text: string;
+  status?: string;
+  rawText?: string;
+  isFallback?: boolean;
+  wordCount?: number;
+  frame?: number;
+  timeSec?: number;
+  interval_index?: number;
+  decision?: number;
+  pre_tree?: string;
+  post_tree?: string;
+  targetTree?: string;
+}
+
+export interface ActivityEvent {
+  id: number;
+  jobId: string;
+  createdAt: string;
+  severity: 'info' | 'warn' | 'error';
+  stage: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CatalogField {
+  key: string;
+  label: string;
+  type: string;
+  primary?: boolean;
+}
+
+export interface CatalogResource {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  primaryKey: string;
+  operations: string[];
+  reversible: boolean;
+  fields: CatalogField[];
+}
+
+export interface UnifiedHistoryItem {
+  key: string;
+  kind: SimulationKind;
+  jobId?: string;
+  runNumber?: number;
+  status: 'running' | 'saving' | 'preparing_replay' | 'ready' | 'failed';
+  stageLabel: string;
+  createdAt: string;
+  result?: string | null;
+  frameCount?: number;
   errorMessage?: string;
 }
 
 export type ReplayLoadResult =
   | { status: 'computing' }
   | { status: 'ready'; scene: import('./scene').ReplayScene };
+

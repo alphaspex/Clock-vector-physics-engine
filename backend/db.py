@@ -78,10 +78,24 @@ def get_latest_intervals(conn, fighter, kind, limit=7):
     return [dict(description=r[0], pre_tree=r[1], post_tree=r[2]) for r in reversed(rows)]
 
 
-def get_undescribed_intervals(conn, fighter, kind, limit=7):
-    """Loads intervals that don't have an AI description yet."""
-    rows = _x(conn, "SELECT id, pre_tree, post_tree FROM interval_descriptions WHERE fighter=%s AND kind=%s AND (text IS NULL OR text = '') ORDER BY id ASC LIMIT %s", (fighter, kind, limit)).fetchall()
-    return [dict(id=r[0], pre_tree=r[1], post_tree=r[2]) for r in rows]
+def get_undescribed_intervals(conn, fighter, kind, limit=7, job_id=None):
+    """Loads oldest undescribed intervals, optionally scoped to one simulation job."""
+    query = (
+        "SELECT id, interval_idx, frame, time_sec, pre_tree, post_tree "
+        "FROM interval_descriptions WHERE fighter=%s AND kind=%s "
+        "AND (text IS NULL OR text = '')"
+    )
+    args = [fighter, kind]
+    if job_id:
+        query += " AND job_id=%s"
+        args.append(job_id)
+    query += " ORDER BY id ASC LIMIT %s"
+    args.append(limit)
+    rows = _x(conn, query, tuple(args)).fetchall()
+    return [
+        dict(id=r[0], interval_idx=r[1], frame=r[2], time_sec=r[3], pre_tree=r[4], post_tree=r[5])
+        for r in rows
+    ]
 
 
 def update_interval_description(conn, record_id, text, word_count):

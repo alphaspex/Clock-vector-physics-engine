@@ -6,102 +6,610 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from functools import partial
 from config import *
 import ai_call, api, db, digest, prompts, replay as replay_mod, rounds, body as body_mod
+import server_logs
 
 DSN = os.environ.get("DATABASE_URL", "fighter.db")
 JOBS, CACHE, LOCK = {}, {}, threading.Lock()
 INFO = body_mod.build_spec(1).motor_info
 
 
-def _ask(preset, effort, max_tokens):
-    p = PROVIDERS[preset]; key = os.environ.get(p["key_env"], "")
-    return lambda system, user: ai_call.call(p, system, user, effort, max_tokens, key)
+def _conn():
+    c = db.connect(DSN); db.init(c); db.one_time_migration(c); return c
 
 
-def _job(kind, params, fn):
-    jid = uuid.uuid4().hex[:8]; JOBS[jid] = dict(id=jid, kind=kind, status="running", params=params, started=time.time())
-    def run():
+def _get_provider_config(preset, conn=None):
+    p = dict(PROVIDERS[preset])
+    override = db.get_setting(conn or _conn(), f"model_override_{preset}")
+    if override:
+        p["model"] = override
+        p["overridden"] = True
+    return p
+
+
+def _ask(preset, effort, max_tokens, jid=None):
+    p = _get_provider_config(preset); key = os.environ.get(p["key_env"], "")
+    def on_event(ev_kind, ev_data):
+        c = _conn()
+        sev = "error" if "error" in ev_kind else "warn" if "retry" in ev_kind else "info"
+        msg = f"AI {preset} ({p['model']}): {ev_kind}"
+        # Inject more details into custom log if it's an error or completion
+        if ev_kind == "ai_done":
+            msg += f" | {ev_data.get('elapsed_ms')}ms | {ev_data.get('usage', {})}"
+            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid or 'direct'} - AI completed in {ev_data.get('elapsed_ms')}ms ({p['model']})", **ev_data)
+        elif ev_kind == "ai_error":
+            msg += f" | ERROR: {ev_data.get('error')}"
+            server_logs.emit("ERROR", "AI_ENGINE", f"Job {jid or 'direct'} - AI error ({p['model']}): {ev_data.get('error')}", **ev_data)
+        elif ev_kind == "ai_retry":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid or 'direct'} - AI retry #{ev_data.get('attempt')}: {ev_data.get('error')}", **ev_data)
+        elif ev_kind == "ai_start":
+            server_logs.emit("DEBUG", "AI_ENGINE", f"Job {jid or 'direct'} - Dispatched prompt to {p['model']} (max_tokens={ev_data.get('max_tokens')})", **ev_data)
+        db.save_event(c, jid or "", sev, ev_kind, msg, ev_data)
+    return lambda system, user: ai_call.call(p, system, user, effort, max_tokens, key, on_event=on_event)
+
+
+def _get_effective_config():
+    c = _conn()
+    return {k: _get_provider_config(k, c) for k in PROVIDERS}
+
+
+def _set_model_override(preset, model):
+    db.set_setting(_conn(), f"model_override_{preset}", model)
+
+
+def _check_api(preset):
+    p = _get_provider_config(preset); key = os.environ.get(p["key_env"], "")
+    # Simple check call
+    res = ai_call.call(p, "You are a diagnostic tool.", "Respond with 'OK' and nothing else.", "minimal", 10, key)
+    if res.get("error"):
+        return dict(ok=False, error=res["error"], model=p["model"])
+    return dict(ok=True, text=res["text"], model=p["model"], elapsed_ms=res.get("elapsed_ms"))
+
+
+COMPILE_JOBS = {}
+
+
+def _compile_replay(kind, n):
+    key = (kind, n)
+    with LOCK:
+        if key in COMPILE_JOBS:
+            return dict(ok=True, status=COMPILE_JOBS[key]["status"], progress=COMPILE_JOBS[key])
+
+    conn = _conn()
+    st = db.get_replay_status(conn, kind, n)
+    if st and st.get("status") == "ready":
+        return dict(ok=True, status="ready", progress=st.get("progress", {}))
+
+    run = db.load_run(conn, kind, n)
+    if not run:
+        return None
+
+    t0 = time.time()
+    prog = dict(
+        stage="queued",
+        frames_generated=0,
+        expected_frames=run["frames"],
+        percent=0.0,
+        started_at=t0,
+        elapsed_ms=0,
+        error=None,
+    )
+    with LOCK:
+        COMPILE_JOBS[key] = dict(status="queued", **prog)
+    db.save_replay_status(conn, kind, n, "queued", progress=prog)
+    server_logs.emit("INFO", "CACHE", f"Queued background replay compilation for {kind} #{n}")
+
+    def work():
         try:
-            JOBS[jid].update(fn(params), status="done")
+            with LOCK:
+                if key in COMPILE_JOBS:
+                    COMPILE_JOBS[key].update(status="compiling", stage="compiling")
+            db.save_replay_status(_conn(), kind, n, "compiling", progress=dict(stage="compiling", frames_generated=0, expected_frames=run["frames"], percent=0.0, started_at=t0, elapsed_ms=int((time.time()-t0)*1000)))
+            server_logs.emit("INFO", "SIMULATION", f"Started 30 FPS replay compilation for {kind} #{n}")
+
+            def on_progress(cur, total):
+                el = int((time.time() - t0) * 1000)
+                pct = round((cur / max(1, total)) * 100, 1)
+                p = dict(stage="compiling", frames_generated=cur, expected_frames=total, percent=pct, started_at=t0, elapsed_ms=el)
+                with LOCK:
+                    if key in COMPILE_JOBS:
+                        COMPILE_JOBS[key].update(p)
+                db.save_replay_status(_conn(), kind, n, "compiling", progress=p)
+
+            out = replay_mod.replay(run["setup"], run["orders"], run["frames"], on_progress=on_progress)
+
+            el = int((time.time() - t0) * 1000)
+            p_val = dict(stage="validating", frames_generated=len(out.get("frames", [])), expected_frames=run["frames"], percent=100.0, started_at=t0, elapsed_ms=el)
+            with LOCK:
+                if key in COMPILE_JOBS:
+                    COMPILE_JOBS[key].update(status="validating", **p_val)
+            db.save_replay_status(_conn(), kind, n, "validating", progress=p_val)
+
+            if not out.get("frames") or len(out["frames"]) == 0:
+                raise ValueError("Replay generated 0 frames")
+            if "init" not in out or "shapes" not in out["init"]:
+                raise ValueError("Replay initialization metadata invalid")
+
+            saved_data = dict(result=out.get("result"), init=out.get("init"), frames=out.get("frames"))
+            p_ready = dict(stage="ready", frames_generated=len(out["frames"]), expected_frames=run["frames"], percent=100.0, started_at=t0, elapsed_ms=el)
+
+            with LOCK:
+                CACHE[key] = dict(status="ready", result=out["result"], init=out["init"], frames=out["frames"])
+                COMPILE_JOBS.pop(key, None)
+
+            db.save_replay_status(_conn(), kind, n, "ready", progress=p_ready, data=saved_data)
+            server_logs.emit("INFO", "CACHE", f"Replay compilation completed for {kind} #{n} ({len(out['frames'])} frames, {el}ms)")
+
         except Exception as e:
-            JOBS[jid].update(status="error", error=repr(e))
-    threading.Thread(target=run, daemon=True).start()
-    return jid
+            el = int((time.time() - t0) * 1000)
+            err_msg = repr(e)
+            p_fail = dict(stage="failed", error=err_msg, started_at=t0, elapsed_ms=el)
+            with LOCK:
+                COMPILE_JOBS.pop(key, None)
+            db.save_replay_status(_conn(), kind, n, "failed", progress=p_fail)
+            server_logs.emit("ERROR", "SIMULATION", f"Replay compilation failed for {kind} #{n}: {err_msg}")
 
-
-def run_practice(p):
-    conn = db.connect(DSN); db.init(conn)
-    r = rounds.practice(_ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS), INFO, db.load_notes(conn, p["ai"]),
-                        db.load_library(conn, p["ai"]), p["interval"], p.get("seconds", PRACTICE_SECONDS))
-    db.save_library(conn, p["ai"], r["library"])
-    n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
-    return dict(run=n, usage=r["usage"])
-
-
-def run_fight(p):
-    conn = db.connect(DSN); db.init(conn)
-    ais = ("A", "B")
-    asks = [_ask(p["presets"][f], p["efforts"][f], FIGHT_MAX_TOKENS) for f in range(2)]
-    r = rounds.fight(asks, INFO, [db.load_notes(conn, a) for a in ais], [db.load_library(conn, a) for a in ais], p["interval"], p.get("seconds", FIGHT_SECONDS))
-    n = db.save_run(conn, "fight", r["setup"], r["orders"], r["frames"], r["result"], dict(p, usage=r["usage"]))
-    for f, a in enumerate(ais):                       # each AI reads its round and writes a memory note
-        db.save_library(conn, a, r["libs"][f])
-        ans = _ask(p["presets"][f], NOTE_EFFORT, NOTE_MAX_TOKENS)(prompts.note_system(), prompts.note_user(digest.digest(r["events"], r["orders"], r["result"], f)))
-        if not ans["error"] and ans["text"].strip(): db.save_note(conn, a, "fight", n, ans["text"].strip()[:NOTE_MAX_CHARS])
-    return dict(run=n, result=r["result"], usage=r["usage"])
+    threading.Thread(target=work, daemon=True).start()
+    return dict(ok=True, status="queued", progress=prog)
 
 
 def _replay(kind, n):
     key = (kind, n)
     with LOCK:
-        if key in CACHE: return CACHE[key]
-        run = db.load_run(db.connect(DSN), kind, n)
-        if not run: return None
-        CACHE[key] = dict(status="computing")
-    def work():
-        out = replay_mod.replay(run["setup"], run["orders"], run["frames"]); out.pop("final_p"); out.pop("events")
-        CACHE[key] = dict(status="ready", result=out["result"], init=out["init"], frames=out["frames"])
-    threading.Thread(target=work, daemon=True).start()
-    return CACHE[key]
+        if key in CACHE and CACHE[key].get("status") == "ready":
+            return CACHE[key]
+    return db.get_compiled_replay(_conn(), kind, n)
+
+
+def _replay_status(kind, n):
+    key = (kind, n)
+    with LOCK:
+        if key in COMPILE_JOBS:
+            j = COMPILE_JOBS[key]
+            return dict(status=j.get("status", "compiling"), run=n, progress=j, error=j.get("error"))
+    conn = _conn()
+    st = db.get_replay_status(conn, kind, n)
+    if not st:
+        return None
+    if st["status"] in ("queued", "compiling", "validating"):
+        err_p = dict(stage="failed", error="Compilation interrupted by server restart. Please retry.")
+        db.save_replay_status(conn, kind, n, "failed", progress=err_p)
+        return dict(status="failed", run=n, progress=err_p, error=err_p["error"])
+    return dict(status=st["status"], run=n, progress=st.get("progress", {}), error=st.get("progress", {}).get("error"))
+
+
+def _apply_interval_progress(jid, ev):
+    """Merge decision and delayed batch-description events into the live UI record."""
+    with LOCK:
+        job = JOBS.get(jid)
+        if job is None:
+            return
+
+        stage = ev.get("stage")
+        job["phase"] = stage
+        job["elapsed_ms"] = int((time.time() - job.get("started", time.time())) * 1000)
+        for source, target in (("percent", "percent"), ("decision", "decision"),
+                               ("target_decisions", "target_decisions"),
+                               ("frame", "frame"), ("max_frame", "max_frame")):
+            if source in ev:
+                job[target] = ev[source]
+
+        fighter = ev.get("fighter", "A")
+        history = job.setdefault("thinking_history", [])
+
+        def find_item():
+            decision = ev.get("decision")
+            for item in reversed(history):
+                if item.get("fighter") == fighter and item.get("decision") == decision:
+                    return item
+            return None
+
+        if stage == "decision_started":
+            item = {
+                "fighter": fighter,
+                "text": ev.get("text", "AI is choosing the next target pose..."),
+                "pre_tree": ev.get("pre_tree"),
+                "frame": ev.get("frame", 0),
+                "decision": ev.get("decision", 0),
+                "interval_index": ev.get("decision", 0),
+                "status": "thinking",
+            }
+            history.append(item)
+            job["latest_thinking" if job.get("kind") == "practice" else f"latest_thinking_{fighter}"] = dict(item)
+            if job.get("kind") == "fight" and fighter == "A":
+                job["latest_thinking"] = dict(item)
+            return
+
+        item = find_item()
+        if item is None and stage in ("decision", "interval_complete", "description_ready"):
+            item = {
+                "fighter": fighter,
+                "text": ev.get("text", "Interval in progress..."),
+                "pre_tree": ev.get("pre_tree"),
+                "frame": ev.get("frame", 0),
+                "decision": ev.get("decision", 0),
+                "interval_index": ev.get("decision", 0),
+            }
+            history.append(item)
+
+        if item is not None:
+            if stage in ("decision", "interval_complete"):
+                if ev.get("text"):
+                    item["text"] = ev["text"]
+                if "valid" in ev:
+                    item["valid"] = ev["valid"]
+                if "pre_tree" in ev:
+                    item["pre_tree"] = ev["pre_tree"]
+                if stage == "decision":
+                    item["status"] = "target_ready" if ev.get("valid") else "target_rejected"
+                    if ev.get("target_tree"):
+                        item["target_tree"] = ev["target_tree"]
+                if stage == "interval_complete":
+                    item["post_tree"] = ev.get("post_tree")
+                    item["frame"] = ev.get("frame", item.get("frame"))
+                    item["status"] = "description_pending"
+            elif stage == "description_ready":
+                item["text"] = ev.get("text", "")
+                item["word_count"] = ev.get("word_count")
+                item["interval_index"] = ev.get("decision")
+                item["pre_tree"] = ev.get("pre_tree", item.get("pre_tree"))
+                item["post_tree"] = ev.get("post_tree", item.get("post_tree"))
+                item["status"] = "described"
+            latest_key = "latest_thinking" if job.get("kind") == "practice" else f"latest_thinking_{fighter}"
+            latest_item = job.get(latest_key)
+            if not latest_item or item.get("decision", 0) >= latest_item.get("decision", 0):
+                job[latest_key] = dict(item)
+            if job.get("kind") == "fight" and fighter == "A":
+                latest_a = job.get("latest_thinking")
+                if not latest_a or item.get("decision", 0) >= latest_a.get("decision", 0):
+                    job["latest_thinking"] = dict(item)
+
+
+def _run_practice(jid, p):
+    conn = _conn()
+    server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Job {jid} running {p.get('seconds', PRACTICE_SECONDS)}s practice", job_id=jid)
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} started practice simulation for Fighter {p['ai']}", params=p)
+    with LOCK:
+        JOBS[jid].update(stage="simulation", phase="starting", thinking_history=[])
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "simulation", f"Beginning practice simulation for Fighter {p['ai']}", dict(p=p))
+
+    def on_progress(ev):
+        _apply_interval_progress(jid, ev)
+        stage = ev.get("stage")
+        if stage == "decision_started":
+            server_logs.set_activity(
+                f"Practicing: Fighter {p['ai']}",
+                f"AI choosing target pose for interval {ev.get('decision')}/{ev.get('target_decisions')}",
+                job_id=jid,
+            )
+        elif stage == "decision":
+            server_logs.emit(
+                "DEBUG", "SIMULATION",
+                f"Job {jid} interval {ev.get('decision')} target {'accepted' if ev.get('valid') else 'rejected'}",
+                translation=ev.get("translation"),
+            )
+        elif stage == "description_ready":
+            server_logs.emit(
+                "INFO", "AI_ENGINE",
+                f"Job {jid} generated interval {ev.get('decision')} physical description ({ev.get('word_count')} words)",
+                fighter="A", description=ev.get("text"),
+            )
+        elif stage == "description_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} interval description batch failed: {ev.get('message')}")
+
+    action_ask = _ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS, jid=jid)
+    # Batch descriptions and round-memory processing do not need the action model's
+    # selected reasoning effort; use the configured lightweight note effort.
+    description_ask = _ask(p["preset"], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid)
+    r = rounds.practice(
+        action_ask, INFO,
+        db.load_round_summaries(conn, p["ai"], "practice", limit=3), {},
+        p["interval"], p.get("seconds", PRACTICE_SECONDS), on_progress=on_progress,
+        task_text=p.get("task_text", "Stand and keep standing"), job_id=jid,
+        description_ask_fn=description_ask,
+    )
+
+    server_logs.set_activity("Saving practice run", f"Writing practice data to database ({r['frames']} frames)", job_id=jid)
+    server_logs.emit("INFO", "DATABASE", f"Job {jid} saving {r['frames']} practice frames to database", usage=r["usage"])
+    with LOCK:
+        JOBS[jid].update(stage="saving", elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "saving", "Saving practice results to database", dict(frames=r["frames"]))
+
+    n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
+    db.save_replay_status(conn, "practice", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
+
+    with LOCK:
+        elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
+        JOBS[jid].update(status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "completed", f"Practice #{n} simulation completed (replay not compiled)", dict(run=n, frames=r["frames"]))
+
+    server_logs.set_activity("Idle - Awaiting requests", f"Practice #{n} completed ({r['frames']} frames, replay not compiled)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Practice #{n} simulation in {elapsed}ms", run=n, frames=r["frames"])
+    conn.close()
+
+def _run_fight(jid, p):
+    conn = _conn()
+    server_logs.set_activity("Fighting: Fighter A vs Fighter B", f"Job {jid} running {p.get('seconds', FIGHT_SECONDS)}s match", job_id=jid)
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} started fight match Fighter A vs Fighter B", params=p)
+    with LOCK:
+        JOBS[jid].update(stage="simulation", thinking_history=[])
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "simulation", f"Beginning fight simulation: Fighter A vs Fighter B", dict(p=p))
+
+    def on_progress(ev):
+        _apply_interval_progress(jid, ev)
+        stage = ev.get("stage")
+        fighter = ev.get("fighter", "A")
+        if stage == "decision_started":
+            server_logs.set_activity(
+                "Fighting: Fighter A vs Fighter B",
+                f"Both fighters choosing target poses; interval {ev.get('decision')}/{ev.get('target_decisions')} (Fighter {fighter})",
+                job_id=jid,
+            )
+        elif stage == "decision":
+            server_logs.emit(
+                "DEBUG", "SIMULATION",
+                f"Job {jid} Fighter {fighter} interval {ev.get('decision')} target {'accepted' if ev.get('valid') else 'rejected'}",
+                translation=ev.get("translation"),
+            )
+        elif stage == "description_ready":
+            server_logs.emit(
+                "INFO", "AI_ENGINE",
+                f"Job {jid} Fighter {fighter} generated interval {ev.get('decision')} physical description ({ev.get('word_count')} words)",
+                description=ev.get("text"),
+            )
+        elif stage == "description_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} Fighter {fighter} interval description batch failed: {ev.get('message')}")
+
+    ais = ("A", "B")
+    asks = [_ask(p["presets"][f], p["efforts"][f], FIGHT_MAX_TOKENS, jid=jid) for f in range(2)]
+    description_asks = [_ask(p["presets"][f], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid) for f in range(2)]
+    summaries_per_fighter = [db.load_round_summaries(conn, a, "fight", limit=100) for a in ais]
+    r = rounds.fight(
+        asks, INFO, summaries_per_fighter, [{}, {}],
+        p["interval"], p.get("seconds", FIGHT_SECONDS),
+        on_progress=on_progress, job_id=jid,
+        description_ask_fns=description_asks,
+    )
+
+    # Persistence stage
+    server_logs.set_activity("Saving fight result", f"Result: {r['result'] or 'draw'}, {r['frames']} frames", job_id=jid)
+    server_logs.emit("INFO", "DATABASE", f"Job {jid} saving fight result: {r['result'] or 'draw'}", frames=r["frames"])
+    with LOCK:
+        JOBS[jid].update(stage="saving", elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "saving", f"Saving fight result ({r['result'] or 'draw'}) to database", dict(frames=r["frames"]))
+
+    n = db.save_run(conn, "fight", r["setup"], r["orders"], r["frames"], r["result"], dict(p, usage=r["usage"]))
+    db.save_replay_status(conn, "fight", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
+
+    # Save fight round summaries (one per fighter)
+    round_sums = r.get("round_summaries", ["", ""])
+    for f, a in enumerate(ais):
+        if f < len(round_sums) and round_sums[f]:
+            db.save_round_summary(conn, a, "fight", n, round_sums[f])
+            db.save_event(conn, jid, "info", "round_summary", f"Fighter {a} stored fight round summary for #{n}")
+            server_logs.emit("INFO", "AI_ENGINE", f"Job {jid} - Fighter {a} saved fight round summary", summary_preview=round_sums[f][:100])
+
+    with LOCK:
+        elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
+        JOBS[jid].update(
+            status="done", stage="completed", run=n, result=r["result"], usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled",
+            round_summaries=round_sums,
+        )
+        db.save_or_update_job(conn, JOBS[jid])
+        db.save_event(conn, jid, "info", "completed", f"Fight #{n} simulation completed (replay not compiled)", dict(run=n, result=r["result"], frames=r["frames"]))
+
+    server_logs.set_activity("Idle - Awaiting requests", f"Fight #{n} completed (Winner: {r['result'] or 'draw'}, {elapsed}ms)")
+    server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Fight #{n} simulation. Winner: {r['result'] or 'draw'} ({elapsed}ms)", run=n, result=r["result"])
+
+
+def run_practice(p):
+    jid = "direct_" + uuid.uuid4().hex[:6]
+    with LOCK:
+        JOBS[jid] = dict(id=jid, kind="practice", status="running", stage="starting", params=p, started=time.time(), elapsed_ms=0)
+    _run_practice(jid, p)
+    return dict(run=JOBS[jid].get("run", 1), usage=JOBS[jid].get("usage", {}))
+
+
+def run_fight(p):
+    jid = "direct_" + uuid.uuid4().hex[:6]
+    with LOCK:
+        JOBS[jid] = dict(id=jid, kind="fight", status="running", stage="starting", params=p, started=time.time(), elapsed_ms=0)
+    _run_fight(jid, p)
+    return dict(run=JOBS[jid].get("run", 1), result=JOBS[jid].get("result"), usage=JOBS[jid].get("usage", {}))
+
+
+
+def _start_job(kind, params):
+    jid = uuid.uuid4().hex[:8]
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+    with LOCK:
+        JOBS[jid] = dict(id=jid, kind=kind, status="running", stage="queued", params=params,
+                         started=time.time(), elapsed_ms=0, created=now_str)
+        c = _conn()
+        db.save_or_update_job(c, JOBS[jid])
+        db.save_event(c, jid, "info", "queue", f"Queued {kind} simulation job {jid}", dict(params=params))
+
+    def run():
+        try:
+            if kind == "practice":
+                _run_practice(jid, params)
+            else:
+                _run_fight(jid, params)
+        except Exception as e:
+            with LOCK:
+                elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
+                JOBS[jid].update(status="error", stage="failed", elapsed_ms=elapsed, error=repr(e))
+                c = _conn()
+                db.save_or_update_job(c, JOBS[jid])
+                db.save_event(c, jid, "error", "failed", f"Simulation job {jid} failed: {repr(e)}")
+
+    threading.Thread(target=run, daemon=True).start()
+    return jid
+
+
+def _get_job(jid):
+    with LOCK:
+        if jid in JOBS:
+            j = dict(JOBS[jid])
+            if j.get("status") == "running" and j.get("started"):
+                j["elapsed_ms"] = int((time.time() - j["started"]) * 1000)
+            return j
+    return db.get_job(_conn(), jid)
+
+
+def _list_jobs(limit=50):
+    db_jobs = db.list_jobs(_conn(), limit=limit)
+    with LOCK:
+        active = {jid: dict(j) for jid, j in JOBS.items()}
+    # Merge active in-memory with DB records
+    merged = {}
+    for j in db_jobs:
+        merged[j["id"]] = j
+    for jid, j in active.items():
+        if j.get("status") == "running" and j.get("started"):
+            j["elapsed_ms"] = int((time.time() - j["started"]) * 1000)
+        merged[jid] = j
+    items = sorted(merged.values(), key=lambda x: x.get("started", 0.0), reverse=True)
+    return items[:limit]
+
+
+def _list_events(limit=100, since_id=None):
+    return db.list_events(_conn(), limit=limit, since_id=since_id)
+
+
+def _db_delete(resource, item_id):
+    with LOCK:
+        active = [jid for jid, j in JOBS.items() if j.get("status") == "running"]
+    res = db.delete_resource_item(_conn(), resource, item_id, active_jobs=active)
+    if res.get("ok"):
+        if resource == "runs_fight":
+            with LOCK: CACHE.pop(("fight", int(item_id)), None)
+        elif resource == "runs_practice":
+            with LOCK: CACHE.pop(("practice", int(item_id)), None)
+    return res
+
+
+def _db_delete_batch(resource, item_ids):
+    with LOCK:
+        active = [jid for jid, j in JOBS.items() if j.get("status") == "running"]
+    res = db.delete_resource_batch(_conn(), resource, item_ids, active_jobs=active)
+    if res.get("ok"):
+        for iid in item_ids:
+            if resource == "runs_fight":
+                with LOCK: CACHE.pop(("fight", int(iid)), None)
+            elif resource == "runs_practice":
+                with LOCK: CACHE.pop(("practice", int(iid)), None)
+    return res
+
+
+def _db_purge_all():
+    with LOCK:
+        active = [jid for jid, j in JOBS.items() if j.get("status") == "running"]
+        CACHE.clear()
+    return db.purge_all_database_data(_conn(), active_jobs=active)
 
 
 def _memory(ai):
-    conn = db.connect(DSN); db.init(conn)
-    lib = db.load_library(conn, ai)
-    return dict(ai=ai, notes=db.load_notes(conn, ai), moves=sorted(lib["moves"]), chains=lib["chains"])
+    conn = _conn()
+    return dict(
+        ai=ai,
+        practice_summaries=db.load_round_summaries(conn, ai, "practice", limit=10),
+        fight_summaries=db.load_round_summaries(conn, ai, "fight", limit=10),
+        task_memory=db.get_latest_intervals(conn, ai, "practice", limit=20),
+        fight_memory=db.get_latest_intervals(conn, ai, "fight", limit=20),
+    )
 
 
 def _ctx():
-    def conn_(): c = db.connect(DSN); db.init(c); return c
-    return dict(admin_token=os.environ.get("ADMIN_TOKEN", ""), job=JOBS.get,
-                start=lambda kind, p: _job(kind, p, run_practice if kind == "practice" else run_fight),
-                runs=lambda k: db.list_runs(conn_(), k), memory=_memory, replay=_replay)
+    return dict(
+        admin_token=os.environ.get("ADMIN_TOKEN", ""),
+        start=_start_job,
+        job=_get_job,
+        runs=lambda k: db.list_runs(_conn(), k),
+        memory=_memory,
+        replay=_replay,
+        replay_status=_replay_status,
+        compile_replay=_compile_replay,
+        list_jobs=_list_jobs,
+        list_events=_list_events,
+        db_catalog=lambda: db.get_catalog(_conn()),
+        db_list=lambda r, lim, off: db.list_resource(_conn(), r, lim, off),
+        db_get=lambda r, iid: db.get_resource_item(_conn(), r, iid),
+        db_delete=_db_delete,
+        db_delete_batch=_db_delete_batch,
+        db_purge_all=_db_purge_all,
+        db_reset_memory=lambda target: db.reset_memory(_conn(), target),
+        get_effective_config=_get_effective_config,
+        set_model_override=_set_model_override,
+        check_api=_check_api,
+        get_logs=server_logs.get_logs,
+        clear_logs=server_logs.clear_logs,
+        server_status=server_logs.get_summary,
+        emit_log=server_logs.emit,
+    )
 
 
 class H(BaseHTTPRequestHandler):
     def _send(self, code, payload):
         data = json.dumps(payload).encode()
         self.send_response(code)
-        for k, v in (("Content-Type", "application/json"), ("Access-Control-Allow-Origin", "*"),
-                     ("Access-Control-Allow-Headers", "Content-Type, X-Token"), ("Content-Length", str(len(data)))): self.send_header(k, v)
-        self.end_headers(); self.wfile.write(data)
+        for k, v in (
+            ("Content-Type", "application/json"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"),
+            ("Access-Control-Allow-Headers", "Content-Type, X-Token"),
+            ("Content-Length", str(len(data))),
+        ):
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
 
-    def do_OPTIONS(self): self._send(204, {})
+    def do_OPTIONS(self):
+        self.send_response(204)
+        for k, v in (
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS"),
+            ("Access-Control-Allow-Headers", "Content-Type, X-Token"),
+            ("Access-Control-Max-Age", "600"),
+        ):
+            self.send_header(k, v)
+        self.end_headers()
 
     def _go(self, method):
+        t0 = time.time()
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        # Avoid noisy self-logging when the client is continuously polling /logs
+        is_log_polling = "/logs" in self.path
+        if not is_log_polling:
+            server_logs.emit("DEBUG", "HTTP", f"{method} {self.path} incoming from {client_ip}")
+
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}") if n else {}
             code, payload = api.handle(method, self.path, body, self.headers.get("X-Token"), _ctx())
         except Exception as e:
             code, payload = 500, dict(error=repr(e))
+            server_logs.emit("ERROR", "HTTP", f"Exception processing {method} {self.path}: {repr(e)}", error=str(e), client=client_ip)
+
+        elapsed_ms = int((time.time() - t0) * 1000)
+        if not is_log_polling:
+            lvl = "INFO" if code < 400 else ("WARN" if code < 500 else "ERROR")
+            server_logs.emit(lvl, "HTTP", f"{method} {self.path} -> {code} ({elapsed_ms}ms)", code=code, duration_ms=elapsed_ms, client=client_ip)
+
         self._send(code, payload)
 
     def do_GET(self): self._go("GET")
     def do_POST(self): self._go("POST")
+    def do_DELETE(self): self._go("DELETE")
     def log_message(self, *a): pass
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+    server_logs.emit("INFO", "SYSTEM", f"Fighter server listening on port {port}", dsn=DSN, db_type="postgres" if DSN.startswith("postgres") else "sqlite", token_configured=bool(os.environ.get("ADMIN_TOKEN")))
     print(f"fighter server on :{port}  db={'postgres' if DSN.startswith('postgres') else DSN}  token set={bool(os.environ.get('ADMIN_TOKEN'))}")
     ThreadingHTTPServer(("0.0.0.0", port), H).serve_forever()

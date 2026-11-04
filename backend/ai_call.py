@@ -23,6 +23,12 @@ def _http_post(url, headers, body, timeout):
 
 def _extract_text(data):
     if not isinstance(data, dict): return ""
+    # Responses API streaming emits text in delta events. Accept only visible
+    # output-text deltas; never collect reasoning or reasoning-summary deltas.
+    event_type = data.get("type", "")
+    if event_type in ("response.output_text.delta", "output_text.delta"):
+        delta = data.get("delta")
+        return delta if isinstance(delta, str) else ""
     if "output_text" in data and isinstance(data["output_text"], str): return data["output_text"]
     if "output" in data:
         out = data["output"]
@@ -30,13 +36,21 @@ def _extract_text(data):
         if isinstance(out, list):
             texts = []
             for item in out:
-                if isinstance(item, str): texts.append(item)
+                if isinstance(item, str):
+                    texts.append(item)
                 elif isinstance(item, dict):
+                    # Never expose reasoning items in place of the requested
+                    # final body tree or factual interval description.
+                    if str(item.get("type", "")).startswith("reasoning"):
+                        continue
                     content = item.get("content")
                     if isinstance(content, list):
                         for c in content:
-                            if isinstance(c, str): texts.append(c)
+                            if isinstance(c, str):
+                                texts.append(c)
                             elif isinstance(c, dict):
+                                if str(c.get("type", "")).startswith("reasoning"):
+                                    continue
                                 t = c.get("text") or c.get("content") or ""
                                 if t: texts.append(t)
                     elif isinstance(content, str): texts.append(content)
@@ -51,6 +65,7 @@ def _extract_text(data):
             if isinstance(msg, str): return msg
             return c.get("text") or ""
     if "response" in data and isinstance(data["response"], str): return data["response"]
+    if "response" in data and isinstance(data["response"], dict): return _extract_text(data["response"])
     return ""
 
 
@@ -76,7 +91,9 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                     "input": [{"role": preset["role"], "content": system}, {"role": "user", "content": user}],
                     "stream": True,
                     "temperature": 1,
-                    "max_output_tokens": 32000,
+                    # Respect the caller's per-purpose budget. The previous
+                    # hard-coded 32k cap made even short digest calls unbounded.
+                    "max_output_tokens": max(1, int(max_tokens)),
                     "top_p": 1,
                 }
                 if preset["effort"] and effort and effort != "none":
@@ -90,22 +107,56 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                     if resp.status_code in (429, 500, 502, 503, 504): raise Exception(err)
                     break # Fatal error
 
-                full_text, usage = "", {"prompt": 0, "completion": 0, "reasoning": 0}
-                for line in resp.iter_lines():
-                    if line:
+                output_text_deltas = []
+                done_text_candidates = []
+                completed_text_candidates = []
+                usage = {"prompt": 0, "completion": 0, "reasoning": 0}
+                try:
+                    for line in resp.iter_lines():
+                        if not line:
+                            continue
                         decoded = line.decode("utf-8")
-                        if decoded.startswith("data: "):
-                            try:
-                                chunk = json.loads(decoded[6:])
-                                full_text += _extract_text(chunk)
-                                if "usage" in chunk:
-                                    u = chunk["usage"]
-                                    usage["prompt"] = u.get("input_tokens") or u.get("prompt_tokens") or usage["prompt"]
-                                    usage["completion"] = u.get("output_tokens") or u.get("completion_tokens") or usage["completion"]
-                                    od = u.get("output_tokens_details") or u.get("completion_tokens_details") or {}
-                                    usage["reasoning"] = od.get("reasoning_tokens") or u.get("reasoning_tokens") or usage["reasoning"]
-                            except: pass
-                
+                        if not decoded.startswith("data: "):
+                            continue
+                        try:
+                            chunk = json.loads(decoded[6:])
+                            event_type = chunk.get("type", "")
+                            if event_type in ("response.output_text.delta", "output_text.delta"):
+                                delta = chunk.get("delta")
+                                if isinstance(delta, str):
+                                    output_text_deltas.append(delta)
+                            elif event_type in ("response.output_text.done", "output_text.done"):
+                                done_text = chunk.get("text")
+                                if isinstance(done_text, str):
+                                    done_text_candidates.append(done_text)
+                            else:
+                                piece = _extract_text(chunk)
+                                if piece:
+                                    completed_text_candidates.append(piece)
+                            usage_data = chunk.get("usage")
+                            if not usage_data and isinstance(chunk.get("response"), dict):
+                                usage_data = chunk["response"].get("usage")
+                            if usage_data:
+                                u = usage_data
+                                usage["prompt"] = u.get("input_tokens") or u.get("prompt_tokens") or usage["prompt"]
+                                usage["completion"] = u.get("output_tokens") or u.get("completion_tokens") or usage["completion"]
+                                od = u.get("output_tokens_details") or u.get("completion_tokens_details") or {}
+                                usage["reasoning"] = od.get("reasoning_tokens") or u.get("reasoning_tokens") or usage["reasoning"]
+                        except (TypeError, ValueError, AttributeError):
+                            continue
+                finally:
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+
+                full_text = (
+                    "".join(output_text_deltas)
+                    if output_text_deltas
+                    else "".join(done_text_candidates)
+                    if done_text_candidates
+                    else "".join(completed_text_candidates)
+                )
                 elapsed_ms = int((time.time() - t0) * 1000)
                 res = dict(text=full_text, error=None, elapsed_ms=elapsed_ms, usage=usage)
                 if on_event: on_event("ai_done", dict(model=preset["model"], elapsed_ms=elapsed_ms, usage=res["usage"]))
