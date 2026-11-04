@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for the AI Thinking Stream tab on the frontend and backend live capture integration for active running rounds.",
-  "updatedAt": "2026-11-04T10:56:34.173221061Z",
+  "summary": "Implementation plan to debug and decouple chest ball center rotation from neck and shoulder joints, keeping neck and joints floating on their own space following chest center movement without being rotated by chest ball rotation.",
+  "updatedAt": "2026-11-04T11:06:10.308923329Z",
   "requestFeedback": true,
   "userFacing": true
 }
