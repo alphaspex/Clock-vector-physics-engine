@@ -40,6 +40,8 @@ _OFFICIAL_BODY_STRUCTURE = (
     "\n"
     "CRITICAL HEAD & NECK PROTECTION DIRECTIVE:\n"
     "- Protect your HEAD and NECK at all times. Head or neck destruction causes INSTANT DEFEAT.\n"
+    "- It is acceptable for your CHEST to rest on the ground, but NEVER allow your HEAD to impact or fall onto the floor.\n"
+    "- Maintain a stable grounded chest pose to allow for deliberate movement planning without falling further.\n"
     "- DO NOT damage your own head or neck when executing movements, punches, or rotation routines.\n"
     "- DO NOT slam or drag your head into the ground or arena wall when crawling or shifting your chest.\n"
     "- Keep shoulders and elbows positioned to shield your neck and head from ground impact and opponent strikes.\n"
@@ -101,7 +103,7 @@ _MOTOR_RULES = (
 _DECISION_PRIORITIES = (
     "DECISION PRIORITIES & STRATEGY EVALUATION RULES:\n"
     "1. Protect: Keep the head and neck away from dangerous ground contact at all times.\n"
-    "2. Recover: If the chest is grounded, prioritize lifting it.\n"
+    "2. Recover: If the chest is grounded, prioritize stabilization. Grounded chest contact is acceptable; use it as a stable base to plan your next move while strictly preventing head impact.\n"
     "3. Establish support: Use fist contact and arm position to create a stable base.\n"
     "4. Stabilize: Stop unwanted sliding and regain control.\n"
     "5. Move: Only after recovery, attempt crawling and rotation.\n"
