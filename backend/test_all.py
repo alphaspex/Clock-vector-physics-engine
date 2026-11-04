@@ -9,18 +9,14 @@ spec = body.build_spec(2)
 info = spec.motor_info
 
 # --- moves.parse alone
-txt = """[THINKING] I will strike the opponent chest with a quick left jab and recover immediately to protect my head. [/THINKING]
-move jab = L_shoulder 75,15 0.9 ; L_elbow 15 0.9 | L_shoulder 180,0 2.0 ; L_elbow 150 0.5
-move bad_angle = L_shoulder 80,10 0.9
-move bad_motor = L_pinky 10
+txt = """thinking: I will punch.
+move jab = L_shoulder 80,10 0.9 ; L_elbow 10 0.9 | L_shoulder 999,-50 2 ; L_elbow 300 0.5
+move bad = L_pinky 10
 chain combo = jab, jab
 do combo"""
-thinking, valid_20, count = moves.extract_thinking(txt)
-ok(valid_20 and count == 20, f"extracted exact 20-word thinking (count={count})")
 P = moves.parse(txt, info)
-ok(P["moves"]["jab"][1]["L_shoulder"] == ((180.0, 0.0), 1.0), "values auto-clamped to max (power 2->1)")
-ok(P["moves"]["jab"][1]["L_elbow"] == ((150.0,), 0.5), "elbow 150 -> 150")
-ok(any("80" in e or "15" in e for e in P["errors"]), f"non-15-degree angle rejected: {P['errors']}")
+ok(P["moves"]["jab"][1]["L_shoulder"] == ((180.0, 0.0), 1.0), "values auto-clamped to max (999->180, -50->0, power 2->1)")
+ok(P["moves"]["jab"][1]["L_elbow"] == ((150.0,), 0.5), "elbow 300 -> 150")
 ok(len(P["errors"]) >= 2, f"bad lines reported: {P['errors']}")
 lib = moves.merge(dict(moves={}, chains={}), P)
 steps, errs = moves.compile_do(P["do"], lib)
@@ -38,13 +34,13 @@ ok(r["cur"] is None and r["queue"] == [], "step finishes when motors reached")
 # --- damage alone
 st = body.initial_state(spec)
 fr = [torso_frame(st.p, spec, f) for f in range(2)]
-head = spec.idx["head"]; fist = spec.idx["fistL"]; fistR = spec.idx["fistR"]
+head = spec.idx["head"]; fist = spec.idx["fistL"]
 t = [dict(kind="dyn", ia=fist, ib=head, lid=-1, t=0.0, n=np.array([0, 0, 1.0]), E=10.0, pt=np.zeros(3))]
 php, lhp, pal, lal, rec = damage.apply(t, st.php, st.lhp, st.palive, st.lalive, spec, fr, 1.0)
 ok(abs(php[head] - (32 - 15)) < 1e-6, f"iron fist 10J on wood head: head 32 -> {php[head]:.1f} (x1.5)")
-t = [dict(kind="dyn", ia=fist, ib=fistR, lid=-1, t=0, n=np.array([0, 0, 1.0]), E=50.0, pt=np.zeros(3))]
+t = [dict(kind="dyn", ia=fist, ib=spec.idx["kneL"] if "kneL" in spec.idx else spec.idx["knL"], lid=-1, t=0, n=np.array([0, 0, 1.0]), E=50.0, pt=np.zeros(3))]
 php, *_ = damage.apply(t, st.php, st.lhp, st.palive, st.lalive, spec, fr, 1.0)
-ok(np.isinf(php[fistR]), "iron on iron: no damage, iron indestructible")
+ok(np.isinf(php[spec.idx["knL"]]), "iron on iron: no damage, iron indestructible")
 t = [dict(kind="dyn", ia=fist, ib=-1, lid=spec.lidx["neck"], t=0.5, n=np.array([0, 0, 1.0]), E=25.0, pt=np.zeros(3))]
 php, lhp, pal, lal, rec = damage.apply(t, st.php, st.lhp, st.palive, st.lalive, spec, fr, 2.0)
 ok(not lal[spec.lidx["neck"]] and any(x["event"] == "destroyed" for x in rec), "37.5J on neck (32J): neck destroyed")

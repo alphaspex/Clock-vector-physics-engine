@@ -1,145 +1,57 @@
-"""PROMPTS: builds system and user prompts for Practice and Fight modes, and memory descriptions.
-Pure text in, text out.
-"""
-from config import H_DIR_WORDS, V_DIR_WORDS, DIST_WORDS
+"""PROMPTS: builds every text the AI reads. Pure text in, text out. Never mentions health.
+language_help(info) / practice_system(info, notes) / fight_system(info, notes, me) / turn_message(obs, errors, lib)
+note_system() / note_user(digest_text)"""
+_SEM = {"shoulder": "angles: pitch,out. pitch = swing forward(+)/back(-), 0 = arm hangs down. out = sideways 0..180, arm can never cross the body.",
+        "hip": "angles: pitch,out. pitch = leg forward(+)/back(-), 0 = leg straight down. out = sideways (negative = inward).",
+        "elbow": "one angle: bend of the forearm forward.", "knee": "one angle: bend of the shin backward.",
+        "ankle": "one angle: foot tilt, + = toes up, - = toes down."}
 
-def get_vocabulary_list():
-    lines = []
-    # Distance
-    for d in DIST_WORDS:
-        lines.append(d)
-    lines.append("GROUND")
-    # Horizontal
-    for h in sorted(H_DIR_WORDS.keys()):
-        lines.append(H_DIR_WORDS[h])
-    # Vertical
-    for v in sorted(V_DIR_WORDS.keys(), reverse=True):
-        lines.append(V_DIR_WORDS[v])
-    return "\n".join(lines)
 
-_BODY_GUIDE = (
-    "BODY STRUCTURE & PHYSICAL GUIDE:\n"
-    "- Your body consists of a central CHEST, a NECK, a HEAD, and two arms. Each arm has a SHOULDER, ELBOW and FIST.\n"
-    "- The CHEST is your origin for all relative positions. It is indestructible.\n"
-    "- You have NO LEGS, NO KNEES, NO HIPS, NO ANKLES, and NO FEET.\n"
-    "- To move, use your shoulders and elbows to position your fists against the ground and push.\n"
-    "- Protect your HEAD and NECK. Their destruction causes instant defeat. Keep them away from the ground.\n"
-)
+def language_help(info):
+    rows = []
+    for base, text in _SEM.items():
+        lim = info["L_" + base]["lim"]
+        rows.append(f"  L_{base} / R_{base}: {text} limits {' and '.join(f'{a}..{b}' for a, b in lim)} degrees")
+    return ("MOTORS (values outside limits are clamped automatically):\n" + "\n".join(rows) +
+            "\nLANGUAGE (one command per line):\n"
+            "  move NAME = L_shoulder 80,10 0.9 ; L_elbow 20 0.9 | L_shoulder 0,0 0.5\n"
+            "     ';' separates motors in one step, '|' starts the next step, last number = power 0..1 (torque and speed).\n"
+            "  chain NAME = move1, move2, chain3      (chains may contain moves and chains)\n"
+            "  do NAME, NAME                          (run now; REPLACES whatever is currently running)\n"
+            "A step ends when its motors reach their targets. A blocked or fallen limb stays stuck until your next 'do'.")
 
-_VOCABULARY_INFO = (
-    "POSITION VOCABULARY (ONE PER LINE):\n"
-    + get_vocabulary_list() + "\n"
-    "\nPOSITION FORMAT:\n"
-    "DISTANCE HORIZONTAL_DIRECTION VERTICAL_DIRECTION\n"
-    "Or: DISTANCE STRAIGHT UP / DISTANCE STRAIGHT DOWN\n"
-    "Example: MID FRONT LEVEL, FAR RIGHT LOWER, GROUND FRONT LEVEL, VERY-CLOSE STRAIGHT UP\n"
-)
 
-def practice_system(task_text, current_tree, memory_records=None):
-    """System prompt for Practice Mode."""
-    memory_section = "TASK MEMORY (LATEST 7 INTERVALS):\n"
-    if memory_records:
-        for i, rec in enumerate(memory_records):
-            memory_section += f"RECORD {i+1}:\n"
-            memory_section += f"DESCRIPTION: {rec['description']}\n"
-            memory_section += f"PRE-TREE:\n{rec['pre_tree']}\n"
-            memory_section += f"POST-TREE:\n{rec['post_tree']}\n\n"
-    else:
-        memory_section += "None yet.\n"
+def _mem(notes):
+    return ("\nYOUR NOTES FROM EARLIER ROUNDS (oldest first):\n" + "\n".join(f"- {n}" for n in notes)) if notes else ""
 
-    return (
-        "ROLE: You are an autonomous physics combat fighter in PRACTICE MODE.\n"
-        "\n"
-        + _BODY_GUIDE + "\n"
-        + _VOCABULARY_INFO + "\n"
-        f"PRACTICE TASK: {task_text}\n\n"
-        "INSTRUCTION: Rewrite your entire body tree with the positions you want. return ONLY the tree. No prose, no JSON, no Markdown.\n"
-        "\n"
-        + memory_section +
-        "\nCURRENT BODY TREE:\n"
-        + current_tree
-    )
 
-def fight_system(fighter_name, current_tree, enemy_tree, memory_records=None, round_summaries=None):
-    """System prompt for Fight Mode."""
-    memory_section = "FIGHT MEMORY (LATEST 7 INTERVALS):\n"
-    if memory_records:
-        for i, rec in enumerate(memory_records):
-            memory_section += f"RECORD {i+1}:\n"
-            memory_section += f"DESCRIPTION: {rec['description']}\n"
-            memory_section += f"PRE-TREE:\n{rec['pre_tree']}\n"
-            memory_section += f"POST-TREE:\n{rec['post_tree']}\n\n"
-    else:
-        memory_section += "None yet.\n"
+_WORLD = ("You control a stick-fighter, 1 m tall and about 30 kg, built from iron balls joined by wooden links, in a real physics "
+          "world (gravity 9.81, flat ground, round arena radius 5 m with a 0.5 m wall). Nothing is scripted: you only set motor "
+          "targets and physics decides everything. Heavy iron balls hurt wood; iron cannot be destroyed. Your feet are tiny, so "
+          "standing is hard: falling, crawling and getting up are all valid.\n")
 
-    summaries_section = "PREVIOUS FIGHT ROUND SUMMARIES:\n"
-    if round_summaries:
-        for i, s in enumerate(round_summaries):
-            summaries_section += f"ROUND {i+1}: {s}\n"
-    else:
-        summaries_section += "None yet.\n"
 
-    return (
-        f"ROLE: You are Fighter {fighter_name} in FIGHT MODE.\n"
-        "TASK: WIN THE FIGHT\n"
-        "\n"
-        + _BODY_GUIDE + "\n"
-        + _VOCABULARY_INFO + "\n"
-        "INSTRUCTION: Rewrite your entire body tree with the positions you want. return ONLY the tree. No prose, no JSON, no Markdown.\n"
-        "\n"
-        + summaries_section + "\n"
-        + memory_section +
-        "\nMY CURRENT BODY TREE:\n"
-        + current_tree +
-        "\nENEMY'S CURRENT BODY TREE (READ-ONLY):\n"
-        + enemy_tree
-    )
+def practice_system(info, notes):
+    return (_WORLD + "PRACTICE ROUND: you are alone, nothing can hurt you. Learn to stand, move, hit hard. Save useful moves and "
+            "chains: they are kept for your fights. Each turn you see your pose, then reply with at most 2 short sentences "
+            "followed by language lines.\n" + language_help(info) + _mem(notes))
 
-def batch_description_system():
-    """System prompt for batch interval description generation."""
-    return (
-        "ROLE: You are a factual physical observer.\n"
-        "TASK: Generate exactly one description for each provided interval record.\n"
-        "RULES:\n"
-        "- Each description must be 15-30 words inclusive.\n"
-        "- Describe observable physical changes between PRE-TREE and POST-TREE.\n"
-        "- Mention body-part position changes.\n"
-        "- Be factual and concise. No hidden reasoning or goals.\n"
-        "- Return EXACTLY the same number of descriptions as input records.\n"
-        "FORMAT:\n"
-        "INTERVAL 1: [Description]\n"
-        "INTERVAL 2: [Description]\n"
-        "..."
-    )
 
-def batch_description_user(records):
-    """User prompt for batch description."""
-    lines = []
-    for i, rec in enumerate(records):
-        lines.append(f"INTERVAL {i+1} RECORD:")
-        lines.append(f"PRE-TREE:\n{rec['pre_tree']}")
-        lines.append(f"POST-TREE:\n{rec['post_tree']}")
-        lines.append("")
-    return "\n".join(lines)
+def fight_system(info, notes, me):
+    return (_WORLD + f"FIGHT ROUND: you are fighter {me}. You win if the enemy head or neck is destroyed, or the enemy core stays "
+            "outside the ring for 10 seconds. 60 seconds, otherwise a draw. You cannot see anyone's health. Use your saved moves "
+            "by name with 'do'. Reply with at most 1 short sentence then language lines.\n" + language_help(info) + _mem(notes))
 
-def round_summary_system(fighter_name):
-    """System prompt for end-of-round summary generation."""
-    return (
-        f"ROLE: You are Fighter {fighter_name}'s strategic memory processor.\n"
-        "TASK: Generate a concise strategic memory summary for this round.\n"
-        "RULES:\n"
-        "- Capture what physically happened.\n"
-        "- Identify what was effective or ineffective.\n"
-        "- State one useful lesson for the future.\n"
-        "- Be concise and direct."
-    )
 
-def round_summary_user(records, result_text):
-    """User prompt for round summary."""
-    lines = [f"ROUND RESULT: {result_text}\n", "INTERVAL RECORDS:"]
-    for i, rec in enumerate(records):
-        lines.append(f"Interval {i+1}: {rec['description']}")
-        lines.append(f"PRE-TREE:\n{rec['pre_tree']}")
-        lines.append(f"POST-TREE:\n{rec['post_tree']}\n")
-    lines.append("Write your strategic summary now.")
-    return "\n".join(lines)
+def turn_message(obs, errors, lib):
+    s = obs + "\nYour saved moves: " + (", ".join(sorted(lib["moves"])) or "none") + " | chains: " + (", ".join(sorted(lib["chains"])) or "none")
+    if errors: s += "\nProblems with your last answer: " + "; ".join(errors[:5])
+    return s + "\nAnswer now."
+
+
+def note_system():
+    return "You write one short memory note (max 150 words) for your future self about what worked and what failed. Plain text only."
+
+
+def note_user(digest_text):
+    return digest_text + "\nWrite the note now."

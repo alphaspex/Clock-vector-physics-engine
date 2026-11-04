@@ -6,8 +6,7 @@ from config import ARENA_R, WALL_H, WALL_T, FPS, DT
 
 def describe(spec):
     shapes = [dict(k="ball", p=i, r=round(float(spec.r[i]), 4), n=spec.pname[i]) for i in range(spec.N)]
-    for g in range(spec.NL):
-        shapes.append(dict(k="cap", a=int(spec.la[g]), b=int(spec.lb[g]), r=round(float(spec.lr[g]), 4), n=spec.lname[g]))
+    shapes += [dict(k="cap", a=int(spec.la[g]), b=int(spec.lb[g]), r=round(float(spec.lr[g]), 4), n=spec.lname[g]) for g in range(spec.NL)]
     return dict(points=spec.N, shapes=shapes, world=dict(ring=ARENA_R, wall_h=WALL_H, wall_t=WALL_T), fps=FPS, nf=spec.nf)
 
 

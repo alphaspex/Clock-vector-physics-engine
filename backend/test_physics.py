@@ -11,20 +11,20 @@ def mini(r, m, mats=None):
                 fid=np.arange(N), ssI=np.array([0]) if N == 2 else e, ssJ=np.array([1]) if N == 2 else e, scS=e, scL=e,
                 la=e, lb=e, lr=np.zeros(0), lmat=np.zeros(1, int))
 
-def run(spec, p, v, frames, gravity=True, drag=True, dt=DT):
+def run(spec, p, v, frames, gravity=True, drag=True):
     """same sub-step loop as physics.step, minus muscles and links"""
     p, v = np.array(p, float), np.array(v, float)
     pal, lal = np.ones(spec.N, bool), np.ones(0, bool)
-    substep_dt = dt / SUBSTEPS; hist, ev = [], []
+    dt = DT / SUBSTEPS; hist, ev = [], []
     for _ in range(frames):
         for _ in range(SUBSTEPS):
             vv = v.copy()
-            if gravity: vv[:, 1] -= G * substep_dt
-            if drag: vv -= spec.kdrag * np.linalg.norm(vv, axis=1, keepdims=True) * vv * substep_dt
-            pp = p + vv * substep_dt
+            if gravity: vv[:, 1] -= G * dt
+            if drag: vv -= spec.kdrag * np.linalg.norm(vv, axis=1, keepdims=True) * vv * dt
+            pp = p + vv * dt
             b = contacts.detect(pp, vv, spec, pal, lal)
             for _ in range(ITERS): pp = contacts.push_out(pp, b, spec)
-            vv = (pp - p) / substep_dt; p = pp
+            vv = (pp - p) / dt; p = pp
             v, tc = contacts.respond(vv, p, b, spec); ev += tc
         hist.append((p.copy(), v.copy()))
     return hist, ev
@@ -66,19 +66,3 @@ for i in range(40):
     st, rn, _ = sim.tick(sp, st, rn)
     d = np.linalg.norm(st.p[sp.cb] - st.p[sp.ca], axis=1); worst = max(worst, float(np.max(np.abs(d - sp.cL) / sp.cL)))
 print(f"INFO fighter dropped 1 m: worst link stretch {worst*100:.1f}% of its length, all finite: {np.isfinite(st.p).all()}")
-
-# 7 Live Physics 7 FPS (LIVE_DT = 1/7 s) checks
-s7 = mini([.05], [1.0]); h7, _ = run(s7, [[0, 20, 0]], [[0, 0, 0]], 7, dt=LIVE_DT)
-chk("7 FPS live free fall in 1 s (m)", 20 - h7[-1][0][0][1], 0.5 * G, 0.03)
-
-s7_coll = mini([.05, .05], [1.0, 3.0]); h7_c, ev7 = run(s7_coll, [[0, 5, 0], [.3, 5, 0]], [[3, 0, 0], [0, 0, 0]], 4, gravity=False, drag=False, dt=LIVE_DT)
-v7 = h7_c[-1][1]; P7 = (s7_coll.m[:, None] * v7).sum(0)[0]
-chk("7 FPS collision momentum after", P7, 3.0, 0.02)
-chk("7 FPS collision absorbed energy", sum(t["E"] for t in ev7), 2.53, 0.15)
-
-sp7, st7, rn7 = sim.new_match(1); st7.p[:, 1] += 1.0; worst7 = 0
-for i in range(10):
-    st7, rn7, _ = sim.tick(sp7, st7, rn7, dt=LIVE_DT)
-    d = np.linalg.norm(st7.p[sp7.cb] - st7.p[sp7.ca], axis=1); worst7 = max(worst7, float(np.max(np.abs(d - sp7.cL) / sp7.cL)))
-print(f"INFO 7 FPS fighter dropped 1 m: worst link stretch {worst7*100:.1f}% of length, all finite: {np.isfinite(st7.p).all()}")
-

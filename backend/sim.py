@@ -19,7 +19,7 @@ def give_orders(runners, f, steps):
     return out
 
 
-def tick(spec, state, runners, dt=DT):
+def tick(spec, state, runners):
     st, new_r = state.copy(), []
     for f in range(spec.nf):
         err = {mo["name"]: st.err[spec.mix[(f, mo["name"])]] for mo in spec.motors if mo["f"] == f}
@@ -28,11 +28,11 @@ def tick(spec, state, runners, dt=DT):
         for nm, (vals, pw) in cmds.items():
             i = spec.mix[(f, nm)]
             st.cmd[i] = [*vals, 0.0][:2]; st.power[i] = pw
-    st, touches = physics.step(spec, st, dt=dt)
+    st, touches = physics.step(spec, st)
     st.frame += 1
-    t = st.frame * dt
+    t = st.frame * DT
     frames = [torso_frame(st.p, spec, f) for f in range(spec.nf)]
     st.php, st.lhp, st.palive, st.lalive, recs = damage.apply(touches, st.php, st.lhp, st.palive, st.lalive, spec, frames, t)
     core_xz = [(st.p[spec.core[f]][0], st.p[spec.core[f]][2]) for f in range(spec.nf)]
-    st.out_t, st.lost, st.result = rules.judge(st.palive, st.lalive, core_xz, st.out_t, t, spec, dt=dt)
+    st.out_t, st.lost, st.result = rules.judge(st.palive, st.lalive, core_xz, st.out_t, t, spec)
     return st, new_r, recs
