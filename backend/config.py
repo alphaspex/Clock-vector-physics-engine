@@ -1,8 +1,9 @@
 """CONFIG: constants only. No functions, no logic. Every other file reads these numbers."""
-FPS = 30
-DT = 1.0 / FPS
-LIVE_FPS = 7
-LIVE_DT = 1.0 / LIVE_FPS
+FPS = 30                 # Replay compilation rate
+DT = 1.0 / FPS          # Replay physics timestep
+LIVE_FPS = 7             # Live server simulation rate (keep at 7)
+LIVE_DT = 1.0 / LIVE_FPS # Live server physics timestep (keep at 1/7)
+DEMO_FIGHT_GAP = 0.40    # Short demo engagement distance; normal 3D setup can be overridden
 SUBSTEPS = 8          # physics steps per frame (1 = exactly one step per frame)
 ITERS = 8             # link/contact solver passes per physics step
 G = 9.81
@@ -33,8 +34,8 @@ PROVIDERS = {
     "baseten":      dict(base="https://inference.baseten.co/v1", model="meta-models/muse-spark-open-1026", key_env="BASETEN_API_KEY", effort=False, role="developer", endpoint="/chat/completions"),
 }
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # "none" is rejected by Muse Spark (HTTP 400)
-PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "medium", "minimal", "low"
-PRACTICE_MAX_TOKENS, FIGHT_MAX_TOKENS, NOTE_MAX_TOKENS = 2048, 1500, 800   # reasoning + visible text together
+PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "high", "minimal", "low"
+PRACTICE_MAX_TOKENS, FIGHT_MAX_TOKENS, NOTE_MAX_TOKENS = 6000, 1500, 800   # reasoning + visible text together
 NOTE_MAX_CHARS = 800      # about 200 tokens
 
 # ---- Round durations (minutes in UI, converted to seconds server-side) ----

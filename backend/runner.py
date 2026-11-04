@@ -1,25 +1,43 @@
-"""RUNNER: plays a list of steps one after another for ONE fighter. Knows nothing about bodies.
-A step is finished when every motor in it reached its target (err < REACHED). No timeout:
-a stuck chain just stays stuck until the next AI call overrides it.
-new()                      OUT: empty runner
-override(runner, steps)    IN: new steps   OUT: runner that has dropped everything old and will play only these
-advance(runner, err)       IN: runner + {motor: error}   OUT: (runner, commands {motor: (vals, power)} to set now)"""
+"""Timed action runner.
+
+Supports timed macro steps {frames: LIVE_TICKS, motors: {...}} and legacy
+motor dictionaries. Timed steps prevent unreachable targets from blocking a
+macro indefinitely. LIVE_TICKS are 7-FPS simulation ticks, not replay frames.
+"""
 from config import REACHED
 
 
 def new():
-    return dict(queue=[], cur=None)
+    return dict(queue=[], cur=None, remaining=0)
 
 
 def override(runner, steps):
-    return dict(queue=list(steps), cur=None)
+    return dict(queue=list(steps or []), cur=None, remaining=0)
 
 
 def advance(runner, err):
-    q, cur, cmds = list(runner["queue"]), runner["cur"], {}
-    if cur is not None and all(err.get(nm, 0.0) < REACHED for nm in cur):
-        cur = None
+    q = list(runner.get("queue", []))
+    cur = runner.get("cur")
+    remaining = int(runner.get("remaining", 0))
+    cmds = {}
+
+    if cur is not None:
+        if "motors" in cur and "frames" in cur:
+            remaining -= 1
+            if remaining <= 0:
+                cur = None
+        elif all(err.get(name, 0.0) < REACHED for name in cur):
+            cur = None
+
     if cur is None and q:
-        cur = q.pop(0)
-        cmds = dict(cur)
-    return dict(queue=q, cur=cur), cmds
+        nxt = q.pop(0)
+        if "motors" in nxt and "frames" in nxt:
+            cur = dict(nxt)
+            remaining = max(1, int(nxt.get("frames", 1)))
+            cmds = dict(nxt["motors"])
+        else:
+            cur = dict(nxt)
+            remaining = 0
+            cmds = dict(nxt)
+
+    return dict(queue=q, cur=cur, remaining=remaining), cmds

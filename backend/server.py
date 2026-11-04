@@ -177,157 +177,80 @@ def _replay_status(kind, n):
     return dict(status=st["status"], run=n, progress=st.get("progress", {}), error=st.get("progress", {}).get("error"))
 
 
-def _apply_interval_progress(jid, ev):
-    """Merge decision and delayed batch-description events into the live UI record."""
-    with LOCK:
-        job = JOBS.get(jid)
-        if job is None:
-            return
-
-        stage = ev.get("stage")
-        job["phase"] = stage
-        job["elapsed_ms"] = int((time.time() - job.get("started", time.time())) * 1000)
-        for source, target in (("percent", "percent"), ("decision", "decision"),
-                               ("target_decisions", "target_decisions"),
-                               ("frame", "frame"), ("max_frame", "max_frame")):
-            if source in ev:
-                job[target] = ev[source]
-
-        fighter = ev.get("fighter", "A")
-        history = job.setdefault("thinking_history", [])
-
-        def find_item():
-            decision = ev.get("decision")
-            for item in reversed(history):
-                if item.get("fighter") == fighter and item.get("decision") == decision:
-                    return item
-            return None
-
-        if stage == "decision_started":
-            item = {
-                "fighter": fighter,
-                "text": ev.get("text", "AI is choosing the next target pose..."),
-                "pre_tree": ev.get("pre_tree"),
-                "frame": ev.get("frame", 0),
-                "decision": ev.get("decision", 0),
-                "interval_index": ev.get("decision", 0),
-                "status": "thinking",
-            }
-            history.append(item)
-            job["latest_thinking" if job.get("kind") == "practice" else f"latest_thinking_{fighter}"] = dict(item)
-            if job.get("kind") == "fight" and fighter == "A":
-                job["latest_thinking"] = dict(item)
-            return
-
-        item = find_item()
-        if item is None and stage in ("decision", "interval_complete", "description_ready"):
-            item = {
-                "fighter": fighter,
-                "text": ev.get("text", "Interval in progress..."),
-                "pre_tree": ev.get("pre_tree"),
-                "frame": ev.get("frame", 0),
-                "decision": ev.get("decision", 0),
-                "interval_index": ev.get("decision", 0),
-            }
-            history.append(item)
-
-        if item is not None:
-            if stage in ("decision", "interval_complete"):
-                if ev.get("text"):
-                    item["text"] = ev["text"]
-                if "valid" in ev:
-                    item["valid"] = ev["valid"]
-                if "pre_tree" in ev:
-                    item["pre_tree"] = ev["pre_tree"]
-                if stage == "decision":
-                    item["status"] = "target_ready" if ev.get("valid") else "target_rejected"
-                    if ev.get("target_tree"):
-                        item["target_tree"] = ev["target_tree"]
-                if stage == "interval_complete":
-                    item["post_tree"] = ev.get("post_tree")
-                    item["frame"] = ev.get("frame", item.get("frame"))
-                    item["status"] = "description_pending"
-            elif stage == "description_ready":
-                item["text"] = ev.get("text", "")
-                item["word_count"] = ev.get("word_count")
-                item["interval_index"] = ev.get("decision")
-                item["pre_tree"] = ev.get("pre_tree", item.get("pre_tree"))
-                item["post_tree"] = ev.get("post_tree", item.get("post_tree"))
-                item["status"] = "described"
-            latest_key = "latest_thinking" if job.get("kind") == "practice" else f"latest_thinking_{fighter}"
-            latest_item = job.get(latest_key)
-            if not latest_item or item.get("decision", 0) >= latest_item.get("decision", 0):
-                job[latest_key] = dict(item)
-            if job.get("kind") == "fight" and fighter == "A":
-                latest_a = job.get("latest_thinking")
-                if not latest_a or item.get("decision", 0) >= latest_a.get("decision", 0):
-                    job["latest_thinking"] = dict(item)
-
-
 def _run_practice(jid, p):
     conn = _conn()
     server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Job {jid} running {p.get('seconds', PRACTICE_SECONDS)}s practice", job_id=jid)
     server_logs.emit("INFO", "SIMULATION", f"Job {jid} started practice simulation for Fighter {p['ai']}", params=p)
     with LOCK:
-        JOBS[jid].update(stage="simulation", phase="starting", thinking_history=[])
+        JOBS[jid].update(stage="simulation", thinking_history=[])
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "simulation", f"Beginning practice simulation for Fighter {p['ai']}", dict(p=p))
 
     def on_progress(ev):
-        _apply_interval_progress(jid, ev)
-        stage = ev.get("stage")
-        if stage == "decision_started":
-            server_logs.set_activity(
-                f"Practicing: Fighter {p['ai']}",
-                f"AI choosing target pose for interval {ev.get('decision')}/{ev.get('target_decisions')}",
-                job_id=jid,
-            )
-        elif stage == "decision":
-            server_logs.emit(
-                "DEBUG", "SIMULATION",
-                f"Job {jid} interval {ev.get('decision')} target {'accepted' if ev.get('valid') else 'rejected'}",
-                translation=ev.get("translation"),
-            )
-        elif stage == "description_ready":
-            server_logs.emit(
-                "INFO", "AI_ENGINE",
-                f"Job {jid} generated interval {ev.get('decision')} physical description ({ev.get('word_count')} words)",
-                fighter="A", description=ev.get("text"),
-            )
-        elif stage == "description_error":
-            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} interval description batch failed: {ev.get('message')}")
+        with LOCK:
+            if jid in JOBS:
+                JOBS[jid]["stage"] = ev.get("stage", JOBS[jid].get("stage"))
+                JOBS[jid]["elapsed_ms"] = int((time.time() - JOBS[jid]["started"]) * 1000)
+                if "percent" in ev: JOBS[jid]["percent"] = ev["percent"]
+                if "decision" in ev: JOBS[jid]["decision"] = ev["decision"]
+                if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
+                if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
+                if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
+                
+                if ev.get("stage") == "decision":
+                    t_item = dict(
+                        fighter=ev.get("fighter", "A"), 
+                        text=ev.get("text", "Selecting a predefined action..."),
+                        action=ev.get("action"),
+                        valid=ev.get("valid"),
+                        error=ev.get("error"),
+                        pre_tree=ev.get("pre_tree"),
+                        frame=ev.get("frame", 0),
+                        decision=ev.get("decision", 0),
+                        attempts=ev.get("attempts", 1)
+                    )
+                    JOBS[jid]["latest_thinking"] = t_item
+                    JOBS[jid].setdefault("thinking_history", []).append(t_item)
+                elif ev.get("stage") == "interval_complete":
+                    # Update the last thinking item with post_tree
+                    if JOBS[jid].get("thinking_history"):
+                        JOBS[jid]["thinking_history"][-1]["post_tree"] = ev.get("post_tree")
 
-    action_ask = _ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS, jid=jid)
-    # Batch descriptions and round-memory processing do not need the action model's
-    # selected reasoning effort; use the configured lightweight note effort.
-    description_ask = _ask(p["preset"], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid)
-    r = rounds.practice(
-        action_ask, INFO,
-        db.load_round_summaries(conn, p["ai"], "practice", limit=3), {},
-        p["interval"], p.get("seconds", PRACTICE_SECONDS), on_progress=on_progress,
-        task_text=p.get("task_text", "Stand and keep standing"), job_id=jid,
-        description_ask_fn=description_ask,
-    )
+        stg = ev.get("stage")
+        if stg == "decision":
+            server_logs.set_activity(f"Practicing: Fighter {p['ai']}", f"Decision #{ev.get('decision')}/{ev.get('target_decisions')} (Frame {ev.get('frame')}/{ev.get('max_frame')})", job_id=jid)
+            server_logs.emit("DEBUG", "SIMULATION", f"Job {jid} decision #{ev.get('decision')} at frame {ev.get('frame')} ({ev.get('percent')}%)", **ev)
+        elif stg == "ai_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} AI error: {ev.get('error')}", **ev)
+            db.save_event(_conn(), jid, "warn", "ai_error", ev.get("error", "AI error"), ev)
 
+    r = rounds.practice(_ask(p["preset"], p["effort"], PRACTICE_MAX_TOKENS, jid=jid), INFO,
+                        db.load_round_summaries(conn, p["ai"], "practice", limit=3), {},
+                        p["interval"], p.get("seconds", PRACTICE_SECONDS), on_progress=on_progress, 
+                        task_text=p.get("task_text", "Stand and keep standing"), job_id=jid)
+
+    # Persistence stage
     server_logs.set_activity("Saving practice run", f"Writing practice data to database ({r['frames']} frames)", job_id=jid)
     server_logs.emit("INFO", "DATABASE", f"Job {jid} saving {r['frames']} practice frames to database", usage=r["usage"])
     with LOCK:
         JOBS[jid].update(stage="saving", elapsed_ms=int((time.time() - JOBS[jid]["started"]) * 1000))
         db.save_or_update_job(conn, JOBS[jid])
-        db.save_event(conn, jid, "info", "saving", "Saving practice results to database", dict(frames=r["frames"]))
+        db.save_event(conn, jid, "info", "saving", f"Saving practice results to database", dict(frames=r["frames"]))
 
     n = db.save_run(conn, "practice", dict(r["setup"], ai=p["ai"]), r["orders"], r["frames"], None, dict(p, usage=r["usage"]))
     db.save_replay_status(conn, "practice", n, "not_compiled", progress=dict(stage="not_compiled", expected_frames=r["frames"]))
 
     with LOCK:
         elapsed = int((time.time() - JOBS[jid]["started"]) * 1000)
-        JOBS[jid].update(status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled")
+        JOBS[jid].update(
+            status="done", stage="completed", run=n, usage=r["usage"], elapsed_ms=elapsed, replay_status="not_compiled",
+        )
         db.save_or_update_job(conn, JOBS[jid])
         db.save_event(conn, jid, "info", "completed", f"Practice #{n} simulation completed (replay not compiled)", dict(run=n, frames=r["frames"]))
 
     server_logs.set_activity("Idle - Awaiting requests", f"Practice #{n} completed ({r['frames']} frames, replay not compiled)")
     server_logs.emit("INFO", "SIMULATION", f"Job {jid} completed Practice #{n} simulation in {elapsed}ms", run=n, frames=r["frames"])
-    conn.close()
+
 
 def _run_fight(jid, p):
     conn = _conn()
@@ -339,40 +262,52 @@ def _run_fight(jid, p):
         db.save_event(conn, jid, "info", "simulation", f"Beginning fight simulation: Fighter A vs Fighter B", dict(p=p))
 
     def on_progress(ev):
-        _apply_interval_progress(jid, ev)
-        stage = ev.get("stage")
-        fighter = ev.get("fighter", "A")
-        if stage == "decision_started":
-            server_logs.set_activity(
-                "Fighting: Fighter A vs Fighter B",
-                f"Both fighters choosing target poses; interval {ev.get('decision')}/{ev.get('target_decisions')} (Fighter {fighter})",
-                job_id=jid,
-            )
-        elif stage == "decision":
-            server_logs.emit(
-                "DEBUG", "SIMULATION",
-                f"Job {jid} Fighter {fighter} interval {ev.get('decision')} target {'accepted' if ev.get('valid') else 'rejected'}",
-                translation=ev.get("translation"),
-            )
-        elif stage == "description_ready":
-            server_logs.emit(
-                "INFO", "AI_ENGINE",
-                f"Job {jid} Fighter {fighter} generated interval {ev.get('decision')} physical description ({ev.get('word_count')} words)",
-                description=ev.get("text"),
-            )
-        elif stage == "description_error":
-            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} Fighter {fighter} interval description batch failed: {ev.get('message')}")
+        with LOCK:
+            if jid in JOBS:
+                JOBS[jid]["stage"] = ev.get("stage", JOBS[jid].get("stage"))
+                JOBS[jid]["elapsed_ms"] = int((time.time() - JOBS[jid]["started"]) * 1000)
+                if "percent" in ev: JOBS[jid]["percent"] = ev["percent"]
+                if "decision" in ev: JOBS[jid]["decision"] = ev["decision"]
+                if "target_decisions" in ev: JOBS[jid]["target_decisions"] = ev["target_decisions"]
+                if "frame" in ev: JOBS[jid]["frame"] = ev["frame"]
+                if "max_frame" in ev: JOBS[jid]["max_frame"] = ev["max_frame"]
+                
+                if ev.get("stage") == "decision":
+                    f_letter = ev.get("fighter", "A")
+                    t_item = dict(
+                        fighter=f_letter,
+                        text=ev.get("text", "Selecting a predefined action..."),
+                        action=ev.get("action"),
+                        valid=ev.get("valid"),
+                        error=ev.get("error"),
+                        pre_tree=ev.get("pre_tree"),
+                        frame=ev.get("frame", 0),
+                        decision=ev.get("decision", 0),
+                        attempts=ev.get("attempts", 1)
+                    )
+                    if f_letter == "A":
+                        JOBS[jid]["latest_thinking_A"] = t_item
+                    else:
+                        JOBS[jid]["latest_thinking_B"] = t_item
+                    JOBS[jid].setdefault("thinking_history", []).append(t_item)
+                elif ev.get("stage") == "interval_complete":
+                    # Update the last thinking item for this fighter with post_tree
+                    f_letter = ev.get("fighter", "A")
+                    for item in reversed(JOBS[jid].get("thinking_history", [])):
+                        if item.get("fighter") == f_letter and item.get("decision") == ev.get("decision"):
+                            item["post_tree"] = ev.get("post_tree")
+                            break
+
+        stg = ev.get("stage")
+        if stg == "ai_error":
+            server_logs.emit("WARN", "AI_ENGINE", f"Job {jid} fighter {ev.get('fighter')} error: {ev.get('error')}", **ev)
+            db.save_event(_conn(), jid, "warn", "ai_error", ev.get("error", "AI error"), ev)
 
     ais = ("A", "B")
     asks = [_ask(p["presets"][f], p["efforts"][f], FIGHT_MAX_TOKENS, jid=jid) for f in range(2)]
-    description_asks = [_ask(p["presets"][f], NOTE_EFFORT, NOTE_MAX_TOKENS, jid=jid) for f in range(2)]
     summaries_per_fighter = [db.load_round_summaries(conn, a, "fight", limit=100) for a in ais]
-    r = rounds.fight(
-        asks, INFO, summaries_per_fighter, [{}, {}],
-        p["interval"], p.get("seconds", FIGHT_SECONDS),
-        on_progress=on_progress, job_id=jid,
-        description_ask_fns=description_asks,
-    )
+    r = rounds.fight(asks, INFO, summaries_per_fighter, [{}, {}],
+                     p["interval"], p.get("seconds", FIGHT_SECONDS), on_progress=on_progress, job_id=jid)
 
     # Persistence stage
     server_logs.set_activity("Saving fight result", f"Result: {r['result'] or 'draw'}, {r['frames']} frames", job_id=jid)
