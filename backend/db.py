@@ -247,6 +247,8 @@ def get_catalog(conn):
     counts = {
         "runs_fight": _x(conn, "SELECT COUNT(*) FROM runs WHERE kind='fight'").fetchone()[0],
         "runs_practice": _x(conn, "SELECT COUNT(*) FROM runs WHERE kind='practice'").fetchone()[0],
+        "round_summaries": _x(conn, "SELECT COUNT(*) FROM round_summaries").fetchone()[0],
+        "interval_descriptions": _x(conn, "SELECT COUNT(*) FROM interval_descriptions").fetchone()[0],
         "notes": _x(conn, "SELECT COUNT(*) FROM notes").fetchone()[0],
         "library": _x(conn, "SELECT COUNT(*) FROM library").fetchone()[0],
         "jobs": _x(conn, "SELECT COUNT(*) FROM jobs").fetchone()[0],
@@ -284,6 +286,42 @@ def get_catalog(conn):
                 dict(key="ai", label="Fighter Slot", type="string"),
                 dict(key="frames", label="Frames", type="number"),
                 dict(key="duration", label="Duration (s)", type="number"),
+            ]
+        ),
+        dict(
+            key="round_summaries",
+            label="Round Summaries",
+            description="AI-generated post-round summary narratives combining interval thoughts.",
+            count=counts["round_summaries"],
+            primary_key="id",
+            operations=["list", "inspect", "delete", "bulk_delete", "reset"],
+            reversible=False,
+            fields=[
+                dict(key="id", label="ID", type="number", primary=True),
+                dict(key="ai", label="Fighter", type="string"),
+                dict(key="kind", label="Round Kind", type="string"),
+                dict(key="run_n", label="Run #", type="number"),
+                dict(key="created", label="Timestamp", type="string"),
+                dict(key="text", label="Summary Narrative", type="string"),
+            ]
+        ),
+        dict(
+            key="interval_descriptions",
+            label="Interval Descriptions",
+            description="Fine-grained interval thoughts recorded every decision cycle (e.g. 5s).",
+            count=counts["interval_descriptions"],
+            primary_key="id",
+            operations=["list", "inspect", "delete", "bulk_delete", "reset"],
+            reversible=False,
+            fields=[
+                dict(key="id", label="ID", type="number", primary=True),
+                dict(key="fighter", label="Fighter", type="string"),
+                dict(key="kind", label="Kind", type="string"),
+                dict(key="interval_idx", label="Interval #", type="number"),
+                dict(key="time_sec", label="Time (s)", type="number"),
+                dict(key="word_count", label="Words", type="number"),
+                dict(key="created", label="Timestamp", type="string"),
+                dict(key="text", label="Thinking Text", type="string"),
             ]
         ),
         dict(
@@ -378,6 +416,18 @@ def list_resource(conn, resource, limit=50, offset=0):
             items.append(dict(n=r[0], created=r[1], frames=r[2], duration=round(r[2] / 30.0, 1), ai=setup.get("ai", "A"), info=info))
         return dict(items=items, total=total, limit=limit, offset=offset)
 
+    if resource == "round_summaries":
+        total = _x(conn, "SELECT COUNT(*) FROM round_summaries").fetchone()[0]
+        rows = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM round_summaries ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(id=r[0], ai=r[1], kind=r[2], run_n=r[3], text=r[4], created=r[5]) for r in rows]
+        return dict(items=items, total=total, limit=limit, offset=offset)
+
+    if resource == "interval_descriptions":
+        total = _x(conn, "SELECT COUNT(*) FROM interval_descriptions").fetchone()[0]
+        rows = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10]) for r in rows]
+        return dict(items=items, total=total, limit=limit, offset=offset)
+
     if resource == "notes":
         total = _x(conn, "SELECT COUNT(*) FROM notes").fetchone()[0]
         rows = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM notes ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
@@ -426,6 +476,16 @@ def get_resource_item(conn, resource, item_id):
         if not r: return None
         return dict(kind="practice", n=r[0], created=r[1], setup=json.loads(r[2]), orders=json.loads(r[3]), frames=r[4], result=r[5] or None, info=json.loads(r[6]))
 
+    if resource == "round_summaries":
+        r = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM round_summaries WHERE id=%s", (int(item_id),)).fetchone()
+        if not r: return None
+        return dict(id=r[0], ai=r[1], kind=r[2], run_n=r[3], text=r[4], created=r[5])
+
+    if resource == "interval_descriptions":
+        r = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions WHERE id=%s", (int(item_id),)).fetchone()
+        if not r: return None
+        return dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10])
+
     if resource == "notes":
         r = _x(conn, "SELECT id, ai, kind, run_n, text, created FROM notes WHERE id=%s", (int(item_id),)).fetchone()
         if not r: return None
@@ -471,6 +531,16 @@ def delete_resource_item(conn, resource, item_id, active_jobs=()):
     if resource == "runs_practice":
         _x(conn, "DELETE FROM replays WHERE kind='practice' AND n=%s", (int(item_id),))
         cur = _x(conn, "DELETE FROM runs WHERE kind='practice' AND n=%s", (int(item_id),))
+        conn.commit()
+        return dict(ok=True, deleted=cur.rowcount)
+
+    if resource == "round_summaries":
+        cur = _x(conn, "DELETE FROM round_summaries WHERE id=%s", (int(item_id),))
+        conn.commit()
+        return dict(ok=True, deleted=cur.rowcount)
+
+    if resource == "interval_descriptions":
+        cur = _x(conn, "DELETE FROM interval_descriptions WHERE id=%s", (int(item_id),))
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)
 

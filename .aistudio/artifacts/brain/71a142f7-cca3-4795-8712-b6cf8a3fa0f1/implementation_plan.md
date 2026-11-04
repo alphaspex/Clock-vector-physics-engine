@@ -1,90 +1,45 @@
-# Chest Ball Rotation & Floating Neck Decoupling Plan
+# Implementation Plan - AI Chest Rotation, Body Part Destruction Display, and Move Deletion
 
-Fix the chest ball center rotation behavior so that rotating the chest ball rotates only the chest ball itself around its center, while keeping the neck, head, shoulder joints, and arm linkages fixed in floating space relative to the chest center (unaffected by the rotational spin of the chest ball).
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> Confirmed user selections from Phase 1 clarification:
-> 1. **Chest Ball & Joint Interaction**: Rotate chest ball around its center without rotating neck and shoulder positions.
-> 2. **Arm Motor Reference Frame**: Keep arm motor reference frames (`torso_frame`) anchored to floating neck and shoulder position vectors, completely unaffected by chest ball rotation.
-> 3. **Link Physics Constraints**: Decouple chest rotation from link physics constraint forces so zero rotational torque is transmitted from chest ball rotation to the neck and shoulder links.
+## Summary
+This plan addresses three core engine requirements:
+1. **Chest Rotation & Arena Locomotion**: Clarify in system prompt rules and physics guidance how differential arm ground forces drive chest rotation and arena movement.
+2. **Destroyed Body Parts & Motor Status**: Update prompt tree formatting so destroyed body balls show `STATUS: DESTROYED` explicitly and associated motors display `STATUS: DESTROYED (DISABLED)` so the AI refrains from attempting to control destroyed limbs.
+3. **Move & Chain Deletion (`forget NAME`)**: Extend the move parser and library merger to support `forget NAME` (or `forget NAME1, NAME2`), allowing the AI in practice mode to delete obsolete or ineffective moves and chains.
 
 ---
 
-## 1. Overview & Core Concept
+## Target Changes
 
-Currently, the fighter body hierarchy couples chest orientation/rotation to the neck link and shoulder joints. When the chest center rotates or receives rotational motor torque, the attached neck, head, and shoulder joints spin along with it.
+### 1. Prompt Body Tree & Motor Status (`/backend/observe.py`)
+- **Body Part Destruction Status**:
+  - Update `build_fighter_tree()` to check `palive[ball_idx]` for `CHEST`, `HEAD`, `RIGHT_SHOULDER`, `RIGHT_ELBOW`, `RIGHT_FIST`, `LEFT_SHOULDER`, `LEFT_ELBOW`, `LEFT_FIST`.
+  - Display `STATUS: INTACT` or `STATUS: DESTROYED` under every physical body part heading.
+  - In `build_enemy_tree()`, include `STATUS: INTACT` or `STATUS: DESTROYED` for enemy body parts.
+- **Motor Destruction Status**:
+  - Update `format_motor_state()` to check if the motor's pivot or joint is destroyed (`not palive[mo['pv']]` or `not lalive[mo['lid']]`).
+  - If destroyed, format as `STATUS: DESTROYED (DISABLED)` instead of reporting target rotations.
 
-This plan isolates the chest ball's rotational degree of freedom:
-- **Chest Center Translation**: The chest ball center remains the structural anchor point. Translating the chest center moves the neck, head, and arms in space.
-- **Chest Ball Rotation Decoupling**: Rotating the chest ball around its center rotates the chest ball's visual/internal orientation, but leaves the neck and shoulder joint positional offsets in "floating space" (anchored to the chest center position, not its orientation angle).
-- **Arm Reference Frame Independence**: The `torso_frame` used to target shoulder/elbow motor angles continues to evaluate position vectors (`head - chest` and `shR - shL`), maintaining stable target coordinates regardless of chest ball rotation.
+### 2. Move & Chain Deletion Engine (`/backend/moves.py` & `/backend/prompts.py`)
+- **Parser Extension (`/backend/moves.py`)**:
+  - Add parsing for `forget NAME` or `delete NAME` (handling comma-separated lists of move/chain names).
+  - Return `forget` list in `parse()` results.
+- **Library Merger (`/backend/moves.py`)**:
+  - In `merge()`, remove any names present in `parsed["forget"]` from `library["moves"]`, `library["chains"]`, `library["move_descriptions"]`, and `library["chain_descriptions"]`.
+- **System Prompt Rules (`/backend/prompts.py`)**:
+  - Update `_MOTOR_RULES` and `practice_system()` to document `forget NAME` syntax for removing saved moves/chains.
 
----
-
-## 2. User Experience & Visual Design
-
-- **Visual Wireframe & Sketch Rendering**: In the 3D replay viewer (`ThreeSketchViewer`), the chest ball displays its orientation rotation, while the neck capsule and shoulder-to-elbow links maintain their relative position vectors above and beside the chest center.
-- **Physics Fidelity**: In the simulation engine, motor forces acting on arms compute their local torque relative to the position-derived torso frame, ensuring strikes and blocks perform predictably without rotational drift caused by chest spinning.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Floating Neck & Shoulder Position Anchoring**
-  - *Chosen Approach*: Anchor neck and shoulder initial relative offsets to the chest center point in translation only.
-  - *Why*: Direct compliance with user requirement where the neck behaves as if "floating in its own space following the ball center movement, not following ball rotation".
-  - *Alternatives Considered*: Rotating neck and shoulders rigidly with chest orientation (rejected as it causes joint twisting and unintended limb spinning).
-
-- **Decision 2: Torso Frame Computation (`torso_frame`)**
-  - *Chosen Approach*: Compute `torso_frame` (right, up, front) using position differences between head, chest, and shoulder points (`p_head - p_chest` and `p_shR - p_shL`).
-  - *Why*: Ensures arm joint motors target exact world-relative and body-relative angles without being distorted when the chest ball spins.
+### 3. Chest Rotation & Arena Locomotion Guidance (`/backend/prompts.py`)
+- Clarify in `_WORLD_RULES` and `_MOTOR_RULES` how arm pushes against the ground produce reaction torques that rotate the central chest ball and propel the fighter across the arena.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+## Verification Plan
+1. Validate Python modules using `py_compile`.
+2. Test move parser with `forget` command syntax.
+3. Run `compile_applet` to confirm overall applet build state.
 
-```
-┌───────────────────────────────────────────────────────────┐
-│                      Physical World                       │
-│                                                           │
-│                  ┌──────────────────┐                     │
-│                  │  Head Ball (p1)  │                     │
-│                  └────────┬─────────┘                     │
-│                           │ (Floating Neck Link)          │
-│                           ▼                               │
-│  ┌───────────┐   ┌──────────────────┐   ┌───────────┐     │
-│  │ shL (p5)  │───│ Chest Center(p0) │───│ shR (p2)  │     │
-│  └───────────┘   └──────────────────┘   └───────────┘     │
-│                   ▲ Rotates around                        │
-│                   │ its own center                        │
-│                   │ (No torque to                         │
-│                   │  neck/shoulders)                      │
-└───────────────────────────────────────────────────────────┘
-```
-
-### Affected System Components
-
-1. **`backend/geometry.py` (`torso_frame`)**:
-   - Verify and guarantee `torso_frame` relies strictly on positional deltas (`p_head - p_chest` and `p_shR - p_shL`) so chest ball rotation does not rotate arm motor targets.
-
-2. **`backend/muscles.py` (`drive`)**:
-   - Ensure motor forces applied to arm joints treat the chest as a pure point pivot position for shoulder links without transmitting chest angular velocity/rotation to child joints.
-
-3. **`backend/body.py` & `backend/physics.py`**:
-   - Isolate chest rotation logic so chest ball center rotation affects chest ball orientation state only.
-   - Maintain rigid distance constraints (`cL`) between chest center position and shoulder/neck positions without angular constraint coupling.
-
-4. **Frontend Verification**:
-   - Ensure `fighter-frontend/src/viewer/ThreeSketchViewer.tsx` renders chest sphere and link capsules based on point snapshot positions, maintaining independent visual representation.
-
----
-
-## 5. Verification & Test Strategy
-
-1. **Automated Backend Tests (`backend/test_all.py` / `backend/test_physics.py`)**:
-   - Add/run unit test verifying that applying rotational torque/commands to the chest center alters chest ball orientation while keeping head, neck, and shoulder joint coordinates unchanged.
-   - Run full test suite (`python backend/test_all.py`) to confirm no regressions in 8-ball body physics, 15° motor rules, or 42-word observations.
-2. **Frontend Replay Verification**:
-   - Verify replay rendering in `ThreeSketchViewer` accurately shows floating neck position following chest center movement while chest ball rotates independently.
+## Progress Tracking & Status Reporting
+For all completed changes, we will explicitly detail:
+1. What was done and working 100%.
+2. What was done and might not work 100%.
+3. What was not done.

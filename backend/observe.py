@@ -245,6 +245,10 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         is_ground = (p[b_idx, 1] - spec.r[b_idx]) <= 0.05
         return translate_3d_position(dx, dy, dz, is_grounded=is_ground)
 
+    def ball_status(ball_name):
+        b_idx = i + ix[ball_name]
+        return "INTACT" if palive[b_idx] else "DESTROYED"
+
     def joint_status(j_name):
         lid = f * nl + lidx[j_name]
         return "INTACT" if lalive[lid] else "DESTROYED"
@@ -255,6 +259,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"SIMULATION TIME: {sim_time:.1f}s",
         "",
         "CHEST",
+        f"  STATUS: {ball_status('chest')}",
         "  POSITION: ORIGIN",
         f"  CURRENT CONTACTS: {_get_current_contacts('chest', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'chest')}",
@@ -262,6 +267,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         "NECK",
         "",
         "HEAD",
+        f"  STATUS: {ball_status('head')}",
         f"  POSITION: {rel_pos('head')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('head', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'head')}",
@@ -274,6 +280,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_RIGHT_JOINT')}",
         "",
         "RIGHT_SHOULDER",
+        f"  STATUS: {ball_status('shR')}",
         f"  POSITION: {rel_pos('shR')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('shR', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shR')}",
@@ -284,6 +291,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_RIGHT_JOINT')}",
         "",
         "RIGHT_ELBOW",
+        f"  STATUS: {ball_status('elR')}",
         f"  POSITION: {rel_pos('elR')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('elR', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elR')}",
@@ -294,6 +302,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_RIGHT_JOINT')}",
         "",
         "RIGHT_FIST",
+        f"  STATUS: {ball_status('fistR')}",
         f"  POSITION: {rel_pos('fistR')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('fistR', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistR')}",
@@ -306,6 +315,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'NECK_LEFT_JOINT')}",
         "",
         "LEFT_SHOULDER",
+        f"  STATUS: {ball_status('shL')}",
         f"  POSITION: {rel_pos('shL')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('shL', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'shL')}",
@@ -316,6 +326,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'SHOULDER_LEFT_JOINT')}",
         "",
         "LEFT_ELBOW",
+        f"  STATUS: {ball_status('elL')}",
         f"  POSITION: {rel_pos('elL')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('elL', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'elL')}",
@@ -326,6 +337,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'ELBOW_LEFT_JOINT')}",
         "",
         "LEFT_FIST",
+        f"  STATUS: {ball_status('fistL')}",
         f"  POSITION: {rel_pos('fistL')}",
         f"  CURRENT CONTACTS: {_get_current_contacts('fistL', p, spec, palive, lalive, f)}",
         f"  TOUCH EVENTS: {_format_touch_events(events, since, f_char, 'fistL')}",
@@ -334,7 +346,7 @@ def build_fighter_tree(p, spec, palive, lalive, f, fr, events, since, frame, sim
     return "\n".join(tree)
 
 
-def build_enemy_tree(p, spec, my_f, fr):
+def build_enemy_tree(p, spec, my_f, fr, palive=None):
     """
     Builds the enemy body tree during fight mode (Section 7).
     All enemy ball positions are measured relative to MY CHEST CENTER.
@@ -361,6 +373,12 @@ def build_enemy_tree(p, spec, my_f, fr):
     h_word, v_word, v_round = translate_direction_words(dx_c, dy_c, dz_c)
     chest_pos_str = v_word if v_round in (90, -90) else f"{h_word} {v_word}"
 
+    def opp_ball_status(ball_name):
+        if palive is None:
+            return "INTACT"
+        b_idx = opp_i + ix[ball_name]
+        return "INTACT" if palive[b_idx] else "DESTROYED"
+
     def rel_opp_pos(ball_name):
         b_idx = opp_i + ix[ball_name]
         d = p[b_idx] - p_my_chest
@@ -376,34 +394,42 @@ def build_enemy_tree(p, spec, my_f, fr):
         "ENEMY FIGHTER",
         "",
         "CHEST",
+        f"  STATUS: {opp_ball_status('chest')}",
         f"  POSITION: {chest_pos_str}",
         f"  CENTER-TO-CENTER DISTANCE: {center_to_center_dist:.2f} meters",
         "",
         "NECK",
         "",
         "HEAD",
+        f"  STATUS: {opp_ball_status('head')}",
         f"  POSITION: {rel_opp_pos('head')}",
         "",
         "RIGHT_ARM",
         "",
         "RIGHT_SHOULDER",
+        f"  STATUS: {opp_ball_status('shR')}",
         f"  POSITION: {rel_opp_pos('shR')}",
         "",
         "RIGHT_ELBOW",
+        f"  STATUS: {opp_ball_status('elR')}",
         f"  POSITION: {rel_opp_pos('elR')}",
         "",
         "RIGHT_FIST",
+        f"  STATUS: {opp_ball_status('fistR')}",
         f"  POSITION: {rel_opp_pos('fistR')}",
         "",
         "LEFT_ARM",
         "",
         "LEFT_SHOULDER",
+        f"  STATUS: {opp_ball_status('shL')}",
         f"  POSITION: {rel_opp_pos('shL')}",
         "",
         "LEFT_ELBOW",
+        f"  STATUS: {opp_ball_status('elL')}",
         f"  POSITION: {rel_opp_pos('elL')}",
         "",
         "LEFT_FIST",
+        f"  STATUS: {opp_ball_status('fistL')}",
         f"  POSITION: {rel_opp_pos('fistL')}",
     ]
 
@@ -446,21 +472,28 @@ def format_movement_info(v, spec, f, fr):
     return "\n".join(lines)
 
 
-def format_motor_state(spec, st, f):
+def format_motor_state(spec, st, f, palive=None, lalive=None):
     """
     Motor state (Section 8):
     Useful current motor information (rotation, target rotation, power, tracking error).
-    No active step or move progress information.
+    Disables motors if pivot ball or joint is destroyed.
     """
     lines = ["MOTOR STATE:"]
     for i, mo in enumerate(spec.motors):
         if mo["f"] != f:
             continue
         nm = mo["name"]
+        pv_alive = palive[mo["pv"]] if palive is not None else True
+        joint_alive = (lalive[mo["lid"]] if lalive is not None and "lid" in mo and mo["lid"] >= 0 else True)
+
+        if not pv_alive or not joint_alive:
+            lines.append(f"  {nm}: STATUS=DESTROYED (DISABLED)")
+            continue
+
         cmd_vals = [int(round(x)) for x in st.cmd[i][:len(mo["lim"])]]
         pw = float(st.power[i])
         err = float(st.err[i])
-        lines.append(f"  {nm}: TARGET_ROTATION={cmd_vals}° | POWER={pw:.2f} | ERROR={err:.3f}")
+        lines.append(f"  {nm}: TARGET_ROTATION={cmd_vals}° | POWER={pw:.2f} | ERROR={err:.3f} | STATUS=INTACT")
     return "\n".join(lines)
 
 
@@ -513,7 +546,7 @@ def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=
     # 5. ENEMY BODY TREE (Fight mode only)
     if enemy and spec.nf == 2:
         parts.append("\n=== ENEMY BODY TREE ===")
-        parts.append(build_enemy_tree(p, spec, f, fr))
+        parts.append(build_enemy_tree(p, spec, f, fr, palive=palive))
 
     # 6. Movement information
     parts.append("\n=== MOVEMENT INFORMATION ===")
@@ -521,7 +554,7 @@ def observe(p, v, spec, palive, lalive, cmd, st, f, t, events, since=0.0, enemy=
 
     # 7. Motor state
     parts.append("\n=== MOTOR STATE ===")
-    parts.append(format_motor_state(spec, st, f))
+    parts.append(format_motor_state(spec, st, f, palive=palive, lalive=lalive))
 
     # 8. Saved moves and chains
     if library:

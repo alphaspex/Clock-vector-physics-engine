@@ -56,7 +56,7 @@ def parse(text, motor_info):
     # Ensure thinking section is removed before parsing actions
     _, _, clean_text, _ = extract_thinking(text)
 
-    moves, chains, do, errors = {}, {}, [], []
+    moves, chains, do, forget, errors = {}, {}, [], [], []
     move_descriptions = {}
     chain_descriptions = {}
 
@@ -83,12 +83,20 @@ def parse(text, motor_info):
                     errors.append(f"{last_defined_name}: chain description has {wc} words (expected 10-15 words)")
             continue
 
-        # Check for move, chain, or do command
-        m = re.match(r"^\s*(move|chain|do)\b[:\s]*(.*)$", line, re.I)
+        # Check for move, chain, do, or forget/delete command
+        m = re.match(r"^\s*(move|chain|do|forget|delete)\b[:\s]*(.*)$", line, re.I)
         if not m:
             continue
 
         kind, rest = m.group(1).lower(), m.group(2).strip()
+
+        if kind in ("forget", "delete"):
+            if rest.startswith("="):
+                rest = rest[1:].strip()
+            forget += [x.strip() for x in rest.split(",") if x.strip()]
+            last_defined_kind = None
+            last_defined_name = None
+            continue
 
         if kind == "do":
             # Strip optional '=' if present
@@ -159,6 +167,7 @@ def parse(text, motor_info):
         moves=moves,
         chains=chains,
         do=do,
+        forget=forget,
         errors=errors,
         move_descriptions=move_descriptions,
         chain_descriptions=chain_descriptions,
@@ -166,11 +175,22 @@ def parse(text, motor_info):
 
 
 def merge(library, parsed):
+    moves = {**library.get("moves", {}), **parsed.get("moves", {})}
+    chains = {**library.get("chains", {}), **parsed.get("chains", {})}
+    move_desc = {**library.get("move_descriptions", {}), **parsed.get("move_descriptions", {})}
+    chain_desc = {**library.get("chain_descriptions", {}), **parsed.get("chain_descriptions", {})}
+
+    for fg in parsed.get("forget", []):
+        moves.pop(fg, None)
+        chains.pop(fg, None)
+        move_desc.pop(fg, None)
+        chain_desc.pop(fg, None)
+
     return dict(
-        moves={**library.get("moves", {}), **parsed.get("moves", {})},
-        chains={**library.get("chains", {}), **parsed.get("chains", {})},
-        move_descriptions={**library.get("move_descriptions", {}), **parsed.get("move_descriptions", {})},
-        chain_descriptions={**library.get("chain_descriptions", {}), **parsed.get("chain_descriptions", {})},
+        moves=moves,
+        chains=chains,
+        move_descriptions=move_desc,
+        chain_descriptions=chain_desc,
     )
 
 

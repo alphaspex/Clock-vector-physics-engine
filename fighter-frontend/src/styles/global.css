@@ -88,8 +88,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
 .history-panel { min-height: 220px; }
 .history-panel .panel-heading { margin-bottom: 12px; }
-.history-tabs { display: flex; gap: 14px; border-bottom: 1px solid #e9eae4; }
-.history-tabs button { display: flex; align-items: center; gap: 6px; padding: 0 0 9px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #898b82; font: 10px var(--mono); cursor: pointer; }
+.history-tabs { display: flex; gap: 14px; border-bottom: 1px solid #e9eae4; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+.history-tabs button { display: flex; align-items: center; gap: 6px; padding: 0 0 9px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #898b82; font: 10px var(--mono); cursor: pointer; flex-shrink: 0; white-space: nowrap; }
 .history-tabs button.is-active { color: #2c2d26; border-bottom-color: #292a24; }
 .history-tabs button span { color: #a0a197; }
 .history-list { display: flex; flex-direction: column; max-height: 300px; overflow: auto; }
@@ -179,7 +179,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 @media (max-width: 600px) {
   .app-shell { padding: 0 12px 15px; }
   .topbar { height: auto; min-height: 72px; flex-wrap: wrap; gap: 10px; padding: 10px 0; }
-  .topbar-nav { order: 3; width: 100%; justify-content: center; }
+  .topbar-nav { order: 3; width: 100%; justify-content: flex-start; padding: 4px 2px 6px; }
   .brand-lockup { gap: 9px; }
   .brand-mark { width: 30px; height: 30px; }
   .brand-lockup h1 { font-size: 16px; }
@@ -206,8 +206,34 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 }
 
 /* --- Navigation Switcher --- */
-.topbar-nav { display: flex; align-items: center; gap: 6px; }
-.topbar-nav__item { display: inline-flex; align-items: center; gap: 7px; position: relative; padding: 7px 13px; border: 1px solid #dedfd8; border-radius: 6px; background: transparent; color: #62655d; font: 12px var(--mono); cursor: pointer; transition: all .15s ease; }
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.topbar-nav::-webkit-scrollbar { height: 4px; }
+.topbar-nav::-webkit-scrollbar-thumb { background: #c2c4bb; border-radius: 2px; }
+.topbar-nav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  position: relative;
+  padding: 7px 13px;
+  border: 1px solid #dedfd8;
+  border-radius: 6px;
+  background: transparent;
+  color: #62655d;
+  font: 12px var(--mono);
+  cursor: pointer;
+  transition: all .15s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .topbar-nav__item:hover { background: #e9eae4; color: #20211e; }
 .topbar-nav__item.is-active { background: #262722; color: #fff; border-color: #262722; box-shadow: 0 1px 4px #20211e14; }
 .live-indicator-dot { width: 6px; height: 6px; border-radius: 50%; background: #e04b38; box-shadow: 0 0 0 2px #e04b3833; animation: pulse 1s infinite; }
@@ -303,8 +329,31 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .button--reset-memory:hover { background: #3c3e37; }
 .button--danger { background: #b73222; color: #fff; }
 .button--danger:hover:not(:disabled) { background: #8a2114; }
-.db-catalog-tabs { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; }
-.db-tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border: 1px solid #dedfd8; border-radius: 6px; background: #fff; color: #62655d; font: 12px var(--mono); cursor: pointer; white-space: nowrap; }
+.db-catalog-tabs {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.db-catalog-tabs::-webkit-scrollbar { height: 4px; }
+.db-catalog-tabs::-webkit-scrollbar-thumb { background: #c2c4bb; border-radius: 2px; }
+.db-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: 1px solid #dedfd8;
+  border-radius: 6px;
+  background: #fff;
+  color: #62655d;
+  font: 12px var(--mono);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .db-tab:hover { background: #f4f5f0; }
 .db-tab.is-active { background: #262722; color: #fff; border-color: #262722; }
 .db-tab__count { padding: 1px 6px; border-radius: 99px; background: #ede slide; font-size: 10px; }

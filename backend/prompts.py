@@ -7,8 +7,9 @@ _WORLD_RULES = (
     "- Gravity is 9.81 m/s^2 downwards. Ground is a flat ring of radius 5.0 m with a 0.5 m wall.\n"
     "- You control a stick-fighter built from physical balls linked by wooden links.\n"
     "- CHEST is the central ball. Heavy iron balls hurt wood. Fists and chest cannot be destroyed.\n"
-    "- There are no hips, legs, knees, ankles, or feet. Moving and rotating around the arena relies on your chest and arms contacting the ground.\n"
+    "- There are no hips, legs, knees, ankles, or feet. Moving and rotating your central chest ball around the arena relies on your fists/elbows/shoulders contacting the ground and applying differential arm torque.\n"
     "- Motors apply torque towards target angles. Physics and collisions govern all movement.\n"
+    "- Check body tree STATUS tags: if a body part or motor shows STATUS: DESTROYED (DISABLED), do NOT attempt to move or issue commands for it.\n"
 )
 
 _OFFICIAL_BODY_STRUCTURE = (
@@ -61,6 +62,9 @@ _MOTOR_RULES = (
     "- MOTORS: R_shoulder, L_shoulder, R_elbow, L_elbow\n"
     "  - Shoulder angles: (pitch, out). pitch = forward(+)/back(-); out = sideways(0..180).\n"
     "  - Elbow angle: (bend). bend forward (0..150).\n"
+    "- CHEST LOCOMOTION & ROTATION:\n"
+    "  - Push fists/elbows against the ground to rotate your chest and crawl across the ring.\n"
+    "  - Differential shoulder angles (e.g., R_shoulder 45,30 vs L_shoulder -45,30) apply ground reaction torque that rotates your chest.\n"
     "- STRICT ROTATION RULE:\n"
     "  - Motor angles must be EXACT MULTIPLES OF 15° (e.g. -45°, -30°, -15°, 0°, 15°, 30°, 45°, 60°).\n"
     "  - Any command with an angle that is not a multiple of 15° is rejected.\n"
@@ -79,6 +83,8 @@ _MOTOR_RULES = (
     "   description: Advance, raise the guard, then deliver a forward punch.\n"
     "4. Execution command:\n"
     "   do NAME, NAME\n"
+    "5. Delete/forget ineffective moves or chains (PRACTICE MODE):\n"
+    "   forget MOVE_OR_CHAIN_NAME\n"
 )
 
 

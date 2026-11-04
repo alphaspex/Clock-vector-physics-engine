@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan to debug and decouple chest ball center rotation from neck and shoulder joints, keeping neck and joints floating on their own space following chest center movement without being rotated by chest ball rotation.",
-  "updatedAt": "2026-11-04T11:06:10.308923329Z",
+  "summary": "Plan to fix chest rotation guidance, add STATUS: DESTROYED tags for body parts and motors in AI prompts, and add 'forget NAME' syntax for AI move deletion in practice mode.",
+  "updatedAt": "2026-11-04T11:44:31.440993119Z",
   "requestFeedback": true,
   "userFacing": true
 }
