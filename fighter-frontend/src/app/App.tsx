@@ -68,10 +68,6 @@ export default function App() {
         ? 'bad'
         : 'pending';
 
-  const uncompiledCount = useMemo(() => {
-    return [...simulation.practiceRuns, ...simulation.fightRuns].filter(r => !r.replayStatus || r.replayStatus === 'not_compiled').length;
-  }, [simulation.practiceRuns, simulation.fightRuns]);
-
   return (
     <main className="app-shell">
       <header className="topbar">

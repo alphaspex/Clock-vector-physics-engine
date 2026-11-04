@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Brain,
   ChevronDown,
@@ -12,6 +12,7 @@ import {
   Swords,
 } from 'lucide-react';
 import type { SimulationJob, ThinkingItem } from '../../core/commands';
+import { api } from '../../io/client';
 
 interface Props {
   jobs: SimulationJob[];
