@@ -475,8 +475,8 @@ export default function DatabaseManager({ adminToken, onRefreshHistory }: Props)
                     Are you sure you want to <strong>Reset Memory</strong>?
                   </p>
                   <p className="modal-note">
-                    This will delete all stored AI interval descriptions, move syntax history, and reset learned move libraries to empty.
-                    <strong> Run history (saved fights and practices) will be preserved 100%.</strong>
+                    This will delete all stored AI interval descriptions, move syntax history, <strong>Round Summaries</strong>, and reset <strong>Learned Move Libraries</strong> to empty for the target scope.
+                    <strong> Run history (saved fights and practices) and compiled replays will be preserved 100%.</strong>
                   </p>
                   <div className="field mt-3">
                     <span className="field__label">Target Scope</span>

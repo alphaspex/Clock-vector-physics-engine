@@ -275,6 +275,8 @@ def get_catalog(conn):
         "library": _x(conn, "SELECT COUNT(*) FROM library").fetchone()[0],
         "jobs": _x(conn, "SELECT COUNT(*) FROM jobs").fetchone()[0],
         "events": _x(conn, "SELECT COUNT(*) FROM job_events").fetchone()[0],
+        "settings": _x(conn, "SELECT COUNT(*) FROM settings").fetchone()[0],
+        "replays": _x(conn, "SELECT COUNT(*) FROM replays").fetchone()[0],
     }
 
     return [
@@ -339,6 +341,7 @@ def get_catalog(conn):
                 dict(key="id", label="ID", type="number", primary=True),
                 dict(key="fighter", label="Fighter", type="string"),
                 dict(key="kind", label="Kind", type="string"),
+                dict(key="run_n", label="Run #", type="number"),
                 dict(key="interval_idx", label="Interval #", type="number"),
                 dict(key="time_sec", label="Time (s)", type="number"),
                 dict(key="word_count", label="Words", type="number"),
@@ -358,6 +361,7 @@ def get_catalog(conn):
                 dict(key="id", label="ID", type="number", primary=True),
                 dict(key="fighter", label="Fighter", type="string"),
                 dict(key="kind", label="Kind", type="string"),
+                dict(key="run_n", label="Run #", type="number"),
                 dict(key="interval_idx", label="Interval #", type="number"),
                 dict(key="time_sec", label="Time (s)", type="number"),
                 dict(key="syntax", label="Raw Syntax", type="string"),
@@ -413,6 +417,34 @@ def get_catalog(conn):
                 dict(key="created", label="Timestamp", type="string"),
             ]
         ),
+        dict(
+            key="settings",
+            label="System Settings",
+            description="Key-value pairs for system configuration and migration markers.",
+            count=counts["settings"],
+            primary_key="key",
+            operations=["list", "inspect", "delete"],
+            reversible=False,
+            fields=[
+                dict(key="key", label="Setting Key", type="string", primary=True),
+                dict(key="val", label="Value", type="string"),
+            ]
+        ),
+        dict(
+            key="replays",
+            label="Compiled Replays",
+            description="Full 30 FPS geometry and frame data for rendered replays.",
+            count=counts["replays"],
+            primary_key="id",
+            operations=["list", "inspect", "delete", "bulk_delete"],
+            reversible=False,
+            fields=[
+                dict(key="id", label="Internal ID", type="string", primary=True),
+                dict(key="kind", label="Kind", type="string"),
+                dict(key="n", label="Run #", type="number"),
+                dict(key="status", label="Status", type="string"),
+            ]
+        ),
     ]
 
 
@@ -422,21 +454,21 @@ def list_resource(conn, resource, limit=50, offset=0):
 
     if resource == "runs_fight":
         total = _x(conn, "SELECT COUNT(*) FROM runs WHERE kind='fight'").fetchone()[0]
-        rows = _x(conn, "SELECT n, created, result, frames, info, setup FROM runs WHERE kind='fight' ORDER BY n DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        rows = _x(conn, "SELECT n, created, result, frames, info, setup, orders FROM runs WHERE kind='fight' ORDER BY n DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
         items = []
         for r in rows:
             info = json.loads(r[4]) if r[4] else {}
-            items.append(dict(n=r[0], created=r[1], result=r[2] or None, frames=r[3], duration=round(r[3] / 30.0, 1), info=info))
+            items.append(dict(n=r[0], created=r[1], result=r[2] or None, frames=r[3], duration=round(r[3] / 30.0, 1), info=info, setup=json.loads(r[5]) if r[5] else {}, orders=json.loads(r[6]) if r[6] else []))
         return dict(items=items, total=total, limit=limit, offset=offset)
 
     if resource == "runs_practice":
         total = _x(conn, "SELECT COUNT(*) FROM runs WHERE kind='practice'").fetchone()[0]
-        rows = _x(conn, "SELECT n, created, frames, info, setup FROM runs WHERE kind='practice' ORDER BY n DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        rows = _x(conn, "SELECT n, created, frames, info, setup, orders FROM runs WHERE kind='practice' ORDER BY n DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
         items = []
         for r in rows:
             info = json.loads(r[3]) if r[3] else {}
             setup = json.loads(r[4]) if r[4] else {}
-            items.append(dict(n=r[0], created=r[1], frames=r[2], duration=round(r[2] / 30.0, 1), ai=setup.get("ai", "A"), info=info))
+            items.append(dict(n=r[0], created=r[1], frames=r[2], duration=round(r[2] / 30.0, 1), ai=setup.get("ai", "A"), info=info, setup=setup, orders=json.loads(r[5]) if r[5] else []))
         return dict(items=items, total=total, limit=limit, offset=offset)
 
     if resource == "round_summaries":
@@ -447,8 +479,8 @@ def list_resource(conn, resource, limit=50, offset=0):
 
     if resource == "interval_descriptions":
         total = _x(conn, "SELECT COUNT(*) FROM interval_descriptions").fetchone()[0]
-        rows = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
-        items = [dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10]) for r in rows]
+        rows = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, pre_tree, post_tree, created FROM interval_descriptions ORDER BY id DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], pre_tree=r[10], post_tree=r[11], created=r[12]) for r in rows]
         return dict(items=items, total=total, limit=limit, offset=offset)
 
     if resource == "move_history":
@@ -485,6 +517,18 @@ def list_resource(conn, resource, limit=50, offset=0):
                       metadata=json.loads(r[6]) if r[6] else {}) for r in rows]
         return dict(items=items, total=total, limit=limit, offset=offset)
 
+    if resource == "settings":
+        total = _x(conn, "SELECT COUNT(*) FROM settings").fetchone()[0]
+        rows = _x(conn, "SELECT key, val FROM settings ORDER BY key LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(key=r[0], val=r[1]) for r in rows]
+        return dict(items=items, total=total, limit=limit, offset=offset)
+
+    if resource == "replays":
+        total = _x(conn, "SELECT COUNT(*) FROM replays").fetchone()[0]
+        rows = _x(conn, "SELECT kind, n, status, progress, data FROM replays ORDER BY n DESC LIMIT %s OFFSET %s", (limit, offset)).fetchall()
+        items = [dict(id=f"{r[0]}:{r[1]}", kind=r[0], n=r[1], status=r[2], progress=json.loads(r[3]) if r[3] else {}, data_size=len(r[4]) if r[4] else 0) for r in rows]
+        return dict(items=items, total=total, limit=limit, offset=offset)
+
     return None
 
 
@@ -505,9 +549,9 @@ def get_resource_item(conn, resource, item_id):
         return dict(id=r[0], ai=r[1], kind=r[2], run_n=r[3], text=r[4], created=r[5])
 
     if resource == "interval_descriptions":
-        r = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, created FROM interval_descriptions WHERE id=%s", (int(item_id),)).fetchone()
+        r = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, text, word_count, pre_tree, post_tree, created FROM interval_descriptions WHERE id=%s", (int(item_id),)).fetchone()
         if not r: return None
-        return dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], created=r[10])
+        return dict(id=r[0], job_id=r[1], kind=r[2], run_n=r[3], fighter=r[4], interval_idx=r[5], frame=r[6], time_sec=r[7], text=r[8], word_count=r[9], pre_tree=r[10], post_tree=r[11], created=r[12])
 
     if resource == "move_history":
         r = _x(conn, "SELECT id, job_id, kind, run_n, fighter, interval_idx, frame, time_sec, syntax, created FROM move_history WHERE id=%s", (int(item_id),)).fetchone()
@@ -526,6 +570,23 @@ def get_resource_item(conn, resource, item_id):
         r = _x(conn, "SELECT id, job_id, created, severity, stage, message, metadata FROM job_events WHERE id=%s", (int(item_id),)).fetchone()
         if not r: return None
         return dict(id=r[0], job_id=r[1], created=r[2], severity=r[3], stage=r[4], message=r[5], metadata=json.loads(r[6]) if r[6] else {})
+
+    if resource == "settings":
+        r = _x(conn, "SELECT key, val FROM settings WHERE key=%s", (str(item_id),)).fetchone()
+        if not r: return None
+        return dict(key=r[0], val=r[1])
+
+    if resource == "replays":
+        # Extract kind and n from item_id if it's "kind:n"
+        if ":" in str(item_id):
+            k, n_str = str(item_id).split(":", 1)
+            n = int(n_str)
+        else:
+            # Fallback to kind=fight if only n provided
+            k, n = "fight", int(item_id)
+        r = _x(conn, "SELECT kind, n, status, progress, data FROM replays WHERE kind=%s AND n=%s", (k, n)).fetchone()
+        if not r: return None
+        return dict(kind=r[0], n=r[1], status=r[2], progress=json.loads(r[3]) if r[3] else {}, data=json.loads(r[4]) if r[4] else {})
 
     return None
 
@@ -577,6 +638,21 @@ def delete_resource_item(conn, resource, item_id, active_jobs=()):
         conn.commit()
         return dict(ok=True, deleted=cur.rowcount)
 
+    if resource == "settings":
+        cur = _x(conn, "DELETE FROM settings WHERE key=%s", (str(item_id),))
+        conn.commit()
+        return dict(ok=True, deleted=cur.rowcount)
+
+    if resource == "replays":
+        if ":" in str(item_id):
+            k, n_str = str(item_id).split(":", 1)
+            n = int(n_str)
+        else:
+            k, n = "fight", int(item_id)
+        cur = _x(conn, "DELETE FROM replays WHERE kind=%s AND n=%s", (k, n))
+        conn.commit()
+        return dict(ok=True, deleted=cur.rowcount)
+
     return dict(ok=False, error=f"Unknown resource {resource}", deleted=0)
 
 
@@ -599,7 +675,7 @@ def delete_resource_batch(conn, resource, item_ids, active_jobs=()):
 def reset_memory(conn, target="all"):
     """
     Clears all four new memory buckets (Task/Fight for A/B) and summaries.
-    Removes old library data (moves, chains).
+    Removes library data (moves, chains).
     """
     if target in ("A", "B"):
         _x(conn, "DELETE FROM round_summaries WHERE ai=%s", (target,))

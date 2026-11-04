@@ -225,8 +225,10 @@ export type ReplayWireResponse = ReplayComputingWireResponse | ReplayReadyWireRe
 
 export interface MemoryWireResponse {
   ai: 'A' | 'B';
-  moves: string[];
-  chains: Record<string, unknown>;
+  practice_summaries: string[];
+  fight_summaries: string[];
+  task_memory: Array<{ description: string; pre_tree: string; post_tree: string }>;
+  fight_memory: Array<{ description: string; pre_tree: string; post_tree: string }>;
 }
 
 export interface ServerLogEntryWire {

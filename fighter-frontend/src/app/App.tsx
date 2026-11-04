@@ -21,7 +21,6 @@ import PlaybackBar from '../features/playback/PlaybackBar';
 import ControlRoomPanel from '../features/monitoring/ControlRoomPanel';
 import DatabaseManager from '../features/database/DatabaseManager';
 import LiveLogsPanel from '../features/logs/LiveLogsPanel';
-import ReplayGeneratorPanel from '../features/history/ReplayGeneratorPanel';
 import LiveThinkingPanel from '../features/thinking/LiveThinkingPanel';
 import { usePlayback } from '../features/playback/usePlayback';
 import ThreeSketchViewer from '../viewer/ThreeSketchViewer';
@@ -29,7 +28,7 @@ import StatusDot from '../components/StatusDot';
 import { getConfiguredApiUrl } from '../io/client';
 import { useSimulation } from './useSimulation';
 
-type AppTab = 'tv' | 'thinking' | 'control_room' | 'compilation' | 'database' | 'live_logs';
+type AppTab = 'tv' | 'thinking' | 'control_room' | 'database' | 'live_logs';
 
 export default function App() {
   const simulation = useSimulation();
@@ -109,17 +108,7 @@ export default function App() {
               <span className="live-indicator-dot live-indicator-dot--pulse" />
             )}
           </button>
-          <button
-            type="button"
-            className={`topbar-nav__item ${activeTab === 'compilation' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('compilation')}
-          >
-            <Film size={14} />
-            <span>Replay Generation</span>
-            {uncompiledCount > 0 && (
-              <span className="tab-count" style={{ background: '#e04b38', color: '#fff', border: 'none' }}>{uncompiledCount}</span>
-            )}
-          </button>
+
           <button
             type="button"
             className={`topbar-nav__item ${activeTab === 'control_room' ? 'is-active' : ''}`}
@@ -345,21 +334,7 @@ export default function App() {
         </div>
       )}
 
-      {activeTab === 'compilation' && (
-        <div className="section-container">
-          <ReplayGeneratorPanel
-            practiceRuns={simulation.practiceRuns}
-            fightRuns={simulation.fightRuns}
-            busy={simulation.busy}
-            onSelect={(kind, num) => {
-              simulation.selectRun(kind, num);
-              setActiveTab('tv');
-            }}
-            onCompile={simulation.compileReplay}
-            onRefresh={() => void simulation.refreshRuns()}
-          />
-        </div>
-      )}
+
 
       {activeTab === 'control_room' && (
         <div className="section-container">
