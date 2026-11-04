@@ -120,8 +120,17 @@ def translate_3d_position(dx, dy, dz, is_grounded=False):
 def format_saved_library(library):
     """Formats full definitions and descriptions of saved moves and chains for the AI."""
     lines = []
+    
+    # Show active goal in practice
+    active_goal = library.get("active_goal")
+    if active_goal:
+        lines.append(f"ACTIVE PRACTICE GOAL: {active_goal.upper()}")
+        lines.append("")
+
     moves = library.get("moves", {})
     move_desc = library.get("move_descriptions", {})
+    mastered = library.get("mastered_moves", {})
+    
     if moves:
         lines.append("SAVED MOVES:")
         for name in sorted(moves.keys()):
@@ -135,7 +144,12 @@ def format_saved_library(library):
                 st_strs.append(" ; ".join(mc_strs))
             code = " | ".join(st_strs)
             desc = move_desc.get(name, "A learned combat move.")
-            lines.append(f"  MOVE: {name} = {code}")
+            
+            # Add Mastery tag
+            m_info = mastered.get(name, {})
+            m_tag = f" [MASTERED {m_info.get('streak', 0)}/3]" if m_info.get('mastered') else f" [TRAINING {m_info.get('streak', 0)}/3]"
+            
+            lines.append(f"  MOVE: {name} = {code}{m_tag}")
             lines.append(f"  DESCRIPTION: {desc}")
     else:
         lines.append("SAVED MOVES: None")
@@ -143,14 +157,14 @@ def format_saved_library(library):
     chains = library.get("chains", {})
     chain_desc = library.get("chain_descriptions", {})
     if chains:
-        lines.append("SAVED CHAINS:")
+        lines.append("\nSAVED CHAINS:")
         for name in sorted(chains.keys()):
             c_items = ", ".join(chains[name])
             desc = chain_desc.get(name, "A combination chain of multiple moves.")
             lines.append(f"  CHAIN: {name} = {c_items}")
             lines.append(f"  DESCRIPTION: {desc}")
     else:
-        lines.append("SAVED CHAINS: None")
+        lines.append("\nSAVED CHAINS: None")
 
     return "\n".join(lines)
 

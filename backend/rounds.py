@@ -6,7 +6,7 @@ fight(asks, info, notes, libs, interval, seconds, gap, offset_x) OUT: same, with
 import concurrent.futures as cf
 import math
 from config import *
-import sim, moves, observe, prompts
+import sim, moves, observe, prompts, practice_eval
 try:
     import server_logs
 except ImportError:
@@ -20,7 +20,9 @@ def _plain(steps):
 def _decide(ans, lib, info):
     raw_text = ans.get("text") or ""
     thinking_text, word_count, clean_text, think_err = moves.extract_thinking(raw_text)
-    parsed = moves.parse(clean_text, info)
+    # Pass mastered moves for chain validation
+    mastered = lib.get("mastered_moves", {})
+    parsed = moves.parse(clean_text, info, mastered_moves=mastered)
     lib2 = moves.merge(lib, parsed)
     steps, e2 = moves.compile_do(parsed["do"], lib2)
     errs = list(parsed["errors"]) + e2
@@ -35,7 +37,13 @@ def _add(u, a):
 
 
 def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_progress=None):
+    # Determine active goal (default to recovery)
+    goal_id = library.get("active_goal", "recovery")
     spec, st, rn = sim.new_match(1)
+    
+    # Set initial pose for the goal
+    st = practice_eval.get_initial_pose(goal_id, spec)
+    
     system = prompts.practice_system(info, notes)
     lib, orders, events, errs, last = library, [], [], [], 0.0
     usage = dict(prompt=0, completion=0, reasoning=0)
@@ -104,12 +112,34 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
             on_progress(dict(stage="physics", decision=decision_idx, target_decisions=target_decisions,
                              frame=st.frame, max_frame=max_frame, percent=pct))
 
+    # Evaluate practice result
+    eval_res = practice_eval.evaluate_goal(goal_id, st, spec, 0)
+    
+    # Update mastery streak
+    mastered_moves = lib.get("mastered_moves", {})
+    target_move_name = goal_id # Simple mapping: goal_id is the move name
+    
+    move_status = mastered_moves.get(target_move_name, {"streak": 0, "mastered": False})
+    if eval_res["success"]:
+        move_status["streak"] += 1
+        if move_status["streak"] >= 3:
+            move_status["mastered"] = True
+    else:
+        move_status["streak"] = 0
+        
+    mastered_moves[target_move_name] = move_status
+    lib["mastered_moves"] = mastered_moves
+
     total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
 
     # Generate end-of-round summary from full round interval descriptions
+    # Include physical evaluation in the summary prompt
     round_summary = ""
     if interval_history:
         try:
+            eval_note = f"\nPHYSICAL EVALUATION: {'SUCCESS' if eval_res['success'] else 'FAILED'}\nStreak: {move_status['streak']}/3\nDiagnostics: {eval_res['diagnostics']}"
+            interval_history.append(eval_note)
+            
             sum_ans = ask(prompts.round_summary_system(), prompts.round_summary_user(interval_history))
             _add(usage, sum_ans.get("usage"))
             round_summary = sum_ans.get("text", "").strip()
@@ -120,6 +150,7 @@ def practice(ask, info, notes, library, interval, seconds=PRACTICE_SECONDS, on_p
         library=lib, orders=orders, frames=total_replay_frames, events=events, usage=usage, result=None,
         setup=dict(nf=1, gap=3.0, offset_x=0.0), final_p=st.p.copy(),
         interval_descriptions=interval_history, round_summary=round_summary,
+        eval_result=eval_res
     )
 
 

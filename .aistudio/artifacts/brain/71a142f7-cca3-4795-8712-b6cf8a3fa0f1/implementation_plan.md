@@ -1,139 +1,146 @@
-# Robot Fighter AI Decision Priorities & Database Purge Integration
+# Practice System: One-Move Learning and Mastery Architecture
 
-Implementation plan for integrating high-level decision priorities and physical observation feedback loop rules into `backend/prompts.py`, alongside adding a dedicated "Delete All DB Data" feature in `DatabaseManager.tsx` backed by backend purge API endpoints.
+Architectural blueprint for transitioning the robot fighter from open-ended, multi-move generation to a disciplined, goal-driven motor learning system where the AI refines, tests, and masters one physical movement at a time.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following design choices guide this revision:
+> The following parameters and operational decisions were confirmed for this implementation:
 
-- **Confirmed Decision 1 (Prompt Location)**: Integrated as a dedicated `DECISION PRIORITIES & STRATEGY EVALUATION RULES` section added to both Practice Mode (`practice_system`) and Fight Mode (`fight_system`) prompts in `backend/prompts.py`.
-- **Confirmed Decision 2 (Simulation Scope)**: Enforced across both Practice Mode and Fight Mode for consistent physics behavior during both motor training and arena combat.
-- **Confirmed Decision 3 (Thinking Alignment)**: The mandatory 20-word `[THINKING]` tag directive is guided to reflect current priority level (e.g. Protect/Recover/Support) and evaluate physical movement obstructions in every interval.
-- **Confirmed Decision 4 (Database Clear Feature)**: Added a "Delete All DB Data" button in `DatabaseManager.tsx` with a dual-confirmation modal to allow operators to wipe all database tables (runs, replays, notes, libraries, summaries, interval descriptions, jobs, and events) cleanly in one click.
+- **Confirmed Decision 1 (Mastery Threshold)**: A movement is marked as `mastered` only after achieving **3 consecutive successful practice test rounds** meeting all physical success criteria.
+- **Confirmed Decision 2 (Version History Storage)**: Explicit version history is attached directly to the active move in the library structure (`move_history` and `mastered_moves` dictionaries), preserving step rotations, timestamps, and physical outcome logs across revisions.
+- **Confirmed Decision 3 (Chain Construction Rule)**: **Chains can ONLY be created using moves that have already achieved `mastered` status.** The AI is forbidden from chaining unverified or training moves.
+- **Confirmed Decision 4 (Combo Practice Phase)**: Chain creation is treated as a separate "Combo Mastery" goal in practice. This goal only becomes available after at least two individual moves are mastered.
+- **Confirmed Decision 5 (Fight Mode Separation)**: In Fight Mode, the AI strictly uses existing moves and chains using `do`, prioritizing mastered movements and verified chains. It does not create new moves or chains during combat.
+- **Confirmed Decision 6 (Initial Recovery Benchmark)**: The initial movement goal is **Recovery**: moving from a chest-grounded prone position to a stable four-point base with both fists supporting the body and the chest lifted clear of the ground.
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Overview & Core Concept: The Two-Phase Mastery System
 
-- **Decision Hierarchy & Physical Feedback**:
-  1. **Protect**: Keep head and neck away from dangerous ground contact or strikes at all times.
-  2. **Recover**: If chest is grounded, prioritize lifting it off the floor above all aggressive actions.
-  3. **Establish Support**: Use fist contact and arm positioning to form a stable physical base.
-  4. **Stabilize**: Halt unwanted sliding and regain posture control before launching attacks.
-  5. **Move**: Only after recovery and support are established, attempt crawling and rotation.
-  6. **Fight**: When an opponent is present, balance recovery, defense, and attack strategy.
-  - *Physical Observation Feedback Loop*: Never repeat failed physical strategies without a meaningful parameter change. Analyze physical observations post-action to identify movement blockers and adapt motor rotations or support positions when recovery fails repeatedly.
+Currently, the practice mode prompts the AI to freely generate arbitrary moves and chains. The new system enforces a strict hierarchical progression:
 
-- **Database Purge Management**:
-  - Adds a prominent, red "Delete All DB Data" button in `DatabaseManager.tsx`.
-  - Sends a secure request to `POST /admin/db/purge-all` requiring admin token authentication.
-  - Truncates/deletes records across all tables (`runs`, `replays`, `round_summaries`, `interval_descriptions`, `notes`, `library`, `jobs`, `job_events`) and resets active state safely.
+### Phase 1: Individual Move Mastery
+- **One Goal per Session**: Target a single physical task (e.g., `recovery`).
+- **One Move Sequence**: Refine a single motor sequence.
+- **Physical Evaluation**: AI edits the move version based on telemetry until success criteria are met.
+- **Certification**: 3 consecutive successes mark the move as `mastered`.
+
+### Phase 2: Combo Chain Construction
+- **Pre-requisite**: Multiple mastered moves must exist.
+- **The Combo Goal**: A practice session focused on sequencing (e.g., "Chain `recovery` + `jab`").
+- **Constraint**: Only `mastered` moves can be used as components in a `chain`.
+- **Mastery Certification**: 3 consecutive successful executions of the chain (meeting the combo goal's specific physical success conditions) mark the chain as `mastered`.
+
+### Core Rules
+1. **No Clutter**: Do not create multiple moves for the same goal. Edit the existing one.
+2. **Physical Evaluation & Iteration**: After each round, physics evaluation identifies failure points (e.g., inadequate arm extension). The AI edits the existing move rather than renaming or proliferating new moves.
+3. **Fight Mode Execution**: Strictly uses saved `mastered` moves and chains. Tactical decisions only.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-- **Database Manager UI Extensions**:
-  - In `DatabaseManager.tsx`, alongside the existing "Reset Memory" button, a red `<Trash2 /> Delete All DB Data` button will be placed in the header action toolbar.
-  - Clicking "Delete All DB Data" opens a red warning modal explicitly listing that all saved fights, practices, memories, move libraries, jobs, and event feeds will be deleted permanently.
-  - Upon confirmation, a success toast confirms database truncation and refreshes the catalog tab counts to 0.
-
-- **Live Reasoning & Physical Behavior**:
-  - In `LiveThinkingPanel` and `ControlRoomPanel`, AI interval thinking will reflect priority awareness and physical blockage diagnoses.
-  - In `ThreeSketchViewer`, stick-fighters will demonstrate safer head clearance and immediate chest lifting when grounded.
+- **Live Thinking & Practice Feedback**:
+  - In practice mode, the AI's mandatory 20-word `[THINKING]` diagnosis explicitly evaluates the active goal (Individual or Combo), the performance of the current version, and the specific joint angle or timing adjustments required.
+- **Control Room & Move Library Inspection**:
+  - The move library displays a clear badge indicating `MASTERED (3/3 successes)` or `TRAINING (v{N}, streak: {X}/3)`.
+  - Chains are visibly locked or disabled in the UI unless all component moves are `mastered`.
+- **Fight Mode Execution**:
+  - Fight mode decisions clearly demonstrate tactical execution: issuing `do recovery`, `do jab`, or combos assembled from mastered movements.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Prompt Extension in `backend/prompts.py`**
-  - *Chosen Approach*: Embed `_DECISION_PRIORITIES` in `backend/prompts.py` for `practice_system()` and `fight_system()`.
-  - *Why*: Preserves 100% compatibility with motor syntax rules (exact 15° rotation multiples), 20-word thinking parser, and automated test suites (`test_official_spec.py`, `test_backend.py`, `test_physics.py`).
+- **Decision 1: Pure Physical Verification (Anti-Hallucination)**
+  - *Chosen Approach*: Mastery and success are computed directly from the numerical physics simulation state, never from the AI's textual self-report.
+  - *Why*: Ensures moves are physically functional.
 
-- **Decision 2: Comprehensive Database Purge in `backend/db.py` & `backend/api.py`**
-  - *Chosen Approach*: Implement `purge_all_database_data(conn)` in `backend/db.py` and route it through `POST /admin/db/purge-all` in `backend/api.py`.
-  - *Why*: Provides a clean, complete database reset capability for developers and operators without requiring raw database shell access.
+- **Decision 2: Locked Chain Creation**
+  - *Chosen Approach*: The system rejects any `chain` definition if its components are not found in the `mastered_moves` registry.
+  - *Why*: Prevents "unstable stacks" of unverified moves that degrade combat reliability.
+
+- **Decision 3: Dedicated Physical Goal Evaluator Module (`backend/practice_eval.py`)**
+  - *Chosen Approach*: Encapsulate goal definitions, initial poses, and success condition checkers (Individual vs. Combo) in a dedicated evaluation module.
+  - *Why*: Maintains modularity and keeps `sim.py` focused on the core simulation loop.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Fighter AI & Database System                    │
-└────────────────────────────────────────────────────────────────────────┘
-                                    │
-         ┌──────────────────────────┴──────────────────────────┐
-         ▼                                                     ▼
-┌─────────────────────────┐                           ┌─────────────────────────┐
-│  AI System Prompts      │                           │  Database Management    │
-│  (backend/prompts.py)   │                           │  (DatabaseManager.tsx)  │
-└────────────┬────────────┘                           └────────────┬────────────┘
-             │                                                     │
-             ▼                                                     ▼
-┌─────────────────────────┐                           ┌─────────────────────────┐
-│ _DECISION_PRIORITIES    │                           │  "Delete All DB Data"   │
-│ - 6 Priority Tiers      │                           │  Confirmation Modal     │
-│ - Feedback Evaluation   │                           └────────────┬────────────┘
-│ - 20-Word Thinking      │                                        │
-└────────────┬────────────┘                                        ▼
-             │                                        ┌─────────────────────────┐
-             ▼                                        │ POST /admin/db/purge-all│
-┌─────────────────────────┐                           └────────────┬────────────┘
-│ AI Model Execution      │                                        │
-│ (backend/ai_call.py)    │                                        ▼
-└─────────────────────────┘                           ┌─────────────────────────┐
-                                                      │ purge_all_db_data(conn) │
-                                                      │ (backend/db.py)         │
-                                                      └─────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    ONE-MOVE LEARNING & MASTERY ARCHITECTURE                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                       │
+        ┌──────────────────────────────┴──────────────────────────────┐
+        ▼                                                             ▼
+┌──────────────────────────────┐              ┌──────────────────────────────┐
+│     PRACTICE MODE            │              │          FIGHT MODE          │
+│  (Experiment, Edit, Master)  │              │    (Execute Saved Moves)     │
+└──────────────┬───────────────┘              └──────────────┬───────────────┘
+               │                                             │
+      ┌────────┴─────────────────────┐                       │
+      ▼                              ▼                       ▼
+┌───────────────────────┐    ┌───────────────────────┐  ┌──────────────────────┐
+│ PHASE 1: INDIVIDUAL   │    │ PHASE 2: COMBO        │  │ Tactical Selector    │
+│ Goal: Master 1 Move   │    │ Goal: Sequence Moves  │  │ - Mastered Only      │
+│ - Phys Evaluation     │    │ - Mastered-Only Rule  │  │ - No AI Creation     │
+└──────────────┬────────┘    └──────────────┬────────┘  └──────────────────────┘
+               │                            │
+               └─────────────┬──────────────┘
+                             ▼
+┌────────────────────────────────────────────────────────────┐
+│ Physical Evaluator (backend/practice_eval.py)              │
+│ - Success: 3/3 Streak -> Mark MASTERED                     │
+│ - Failure: Reset Streak -> Provide Physics Diagnostics     │
+└────────────────────────────────────────────────────────────┘
 ```
 
-### Proposed Code Additions:
+### Data Structures & State Management
 
-1. **`backend/prompts.py`**:
-```python
-_DECISION_PRIORITIES = (
-    "DECISION PRIORITIES & STRATEGY EVALUATION RULES:\n"
-    "1. PROTECT: Keep head and neck away from dangerous ground contact or strikes at all times.\n"
-    "2. RECOVER: If chest is grounded, prioritize lifting it off the floor above all aggressive actions.\n"
-    "3. ESTABLISH SUPPORT: Use fist contact and arm positioning to form a stable physical base.\n"
-    "4. STABILIZE: Stop unwanted sliding and regain posture control before launching attacks.\n"
-    "5. MOVE: Only after recovery and support are established, attempt crawling and rotation.\n"
-    "6. FIGHT: When an opponent is present, balance recovery, defense, and attack strategy.\n\n"
-    "STRATEGY EVALUATION & FEEDBACK LOOP:\n"
-    "- Never repeat a failed physical strategy without a meaningful change in motor angles or timing.\n"
-    "- After issuing motor rotations, examine the next physical observation. If expected movement did not happen, identify what physically prevented it and choose a different motor action.\n"
-    "- Do not assume that issuing a movement command means it succeeded physically.\n"
-    "- When recovery fails repeatedly, stop experimenting with unrelated movements. Adjust support position, motor rotations, or recovery approach based on contact and movement data.\n"
-    "- In your mandatory 20-word [THINKING] block, explicitly diagnose your current priority state and any physical movement obstructions.\n"
-)
+1. **Move Library Schema Extension (`library` table in `backend/db.py`)**:
+```json
+{
+  "moves": { ... },
+  "chains": {
+    "recovery_guard": ["recovery", "high_guard"]
+  },
+  "mastered_moves": {
+    "recovery": { "streak": 3, "goal": "recovery", ... },
+    "high_guard": { "streak": 3, "goal": "guard", ... }
+  },
+  "mastered_chains": {
+    "recovery_guard": { "streak": 3, "components": ["recovery", "high_guard"] }
+  },
+  "move_history": { ... }
+}
 ```
 
-2. **`backend/db.py`**:
-```python
-def purge_all_database_data(conn, active_jobs=()):
-    """Clears all records from every database table safely."""
-    _x(conn, "DELETE FROM notes")
-    _x(conn, "DELETE FROM round_summaries")
-    _x(conn, "DELETE FROM interval_descriptions")
-    _x(conn, "DELETE FROM replays")
-    _x(conn, "DELETE FROM runs")
-    _x(conn, "DELETE FROM library")
-    _x(conn, "DELETE FROM job_events")
-    _x(conn, "DELETE FROM jobs WHERE id NOT IN %s", (tuple(active_jobs) if active_jobs else ('__none__',),))
-    conn.commit()
-    return dict(ok=True, message="All database tables successfully purged.")
-```
+2. **Core Components to Modify / Implement**:
+- **`backend/practice_eval.py` (New Module)**:
+  - Defines goal specifications and success criteria for both Individual and Combo goals.
+- **`backend/prompts.py`**:
+  - Updates `practice_system()` to guide the AI through the two-phase progression.
+  - Enforces the rule: "You cannot create chains unless the moves used are MASTERED."
+- **`backend/moves.py`**:
+  - Enhances `parse()` and `merge()` to validate chain components against `mastered_moves`.
+- **`backend/rounds.py`**:
+  - Tracks success streaks and updates mastery registries in the DB.
 
-3. **`backend/api.py`**: Add route handler for `POST /admin/db/purge-all` calling `ctx["db_purge_all"]()`.
-4. **`fighter-frontend/src/io/client.ts`**: Expose `purgeAllDatabase(adminToken: string)`.
-5. **`fighter-frontend/src/features/database/DatabaseManager.tsx`**: Add "Delete All DB Data" button & confirmation modal handler.
+- **`backend/test_practice_mastery.py` (New Automated Test Suite)**:
+  - Comprehensive unit and integration tests verifying single-goal practice, move versioning, physical evaluation rules, mastery threshold (3 consecutive successes), and fight mode move usage.
 
 ---
 
-## Verification Plan
+## 5. Verification Plan
 
-- Run `python3 backend/test_official_spec.py` to ensure all 8 specification test sections pass 100%.
-- Run `python3 backend/test_backend.py` and `python3 backend/test_all.py` to verify full backend, API, and database test suites.
-- Verify in `DatabaseManager.tsx` that deleting all DB data purges records and resets all catalog counters to 0.
+### Automated Backend Tests
+- Run `python3 backend/test_practice_mastery.py` to verify:
+  1. Initial chest-grounded state setup for recovery practice.
+  2. Physical evaluation functions correctly identify success vs. failure based on physics data.
+  3. Single-move editing preserves version history without creating duplicate move names.
+  4. Mastery status triggers precisely upon 3 consecutive successes.
+  5. Fight mode prompt correctly exposes mastered moves and forbids move creation.
+- Run `python3 backend/test_all.py` to ensure existing motor limits, 15° multiples, damage calculations, and 20-word thinking extractions continue to pass with 0 regressions.

@@ -52,7 +52,7 @@ def is_exact_15_mult(val):
     return rem < 1e-4 or abs(rem - 15.0) < 1e-4
 
 
-def parse(text, motor_info):
+def parse(text, motor_info, mastered_moves=None):
     # Ensure thinking section is removed before parsing actions
     _, _, clean_text, _ = extract_thinking(text)
 
@@ -114,7 +114,14 @@ def parse(text, motor_info):
         name, body = [x.strip() for x in rest.split("=", 1)]
 
         if kind == "chain":
-            chains[name] = [x.strip() for x in body.split(",") if x.strip()]
+            chain_moves = [x.strip() for x in body.split(",") if x.strip()]
+            # Chain Rule: Only mastered moves can be used in chains
+            if mastered_moves is not None:
+                invalid = [m for m in chain_moves if m not in mastered_moves]
+                if invalid:
+                    errors.append(f"chain {name}: components {invalid} are not MASTERED moves")
+                    continue
+            chains[name] = chain_moves
             last_defined_kind = "chain"
             last_defined_name = name
             continue
@@ -175,7 +182,21 @@ def parse(text, motor_info):
 
 
 def merge(library, parsed):
-    moves = {**library.get("moves", {}), **parsed.get("moves", {})}
+    old_moves = library.get("moves", {})
+    new_moves = parsed.get("moves", {})
+    history = library.get("move_history", {})
+
+    # Detect edits and save history
+    for name, steps in new_moves.items():
+        if name in old_moves and old_moves[name] != steps:
+            # Move was edited, push previous to history
+            history.setdefault(name, []).append({
+                "steps": old_moves[name],
+                "description": library.get("move_descriptions", {}).get(name, ""),
+                "timestamp": None # Will be filled by caller if needed
+            })
+
+    moves = {**old_moves, **new_moves}
     chains = {**library.get("chains", {}), **parsed.get("chains", {})}
     move_desc = {**library.get("move_descriptions", {}), **parsed.get("move_descriptions", {})}
     chain_desc = {**library.get("chain_descriptions", {}), **parsed.get("chain_descriptions", {})}
@@ -191,6 +212,9 @@ def merge(library, parsed):
         chains=chains,
         move_descriptions=move_desc,
         chain_descriptions=chain_desc,
+        move_history=history,
+        mastered_moves=library.get("mastered_moves", {}),
+        mastered_chains=library.get("mastered_chains", {})
     )
 
 

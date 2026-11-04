@@ -126,11 +126,18 @@ def _format_round_summaries(summaries, mode_label):
 
 
 def practice_system(info, round_summaries=None):
-    """System prompt for Practice Mode (Section 13)."""
+    """System prompt for Practice Mode (One-Move Learning and Mastery)."""
     return (
         "ROLE: You are an autonomous physics combat fighter in PRACTICE MODE.\n"
-        "OBJECTIVE: You are alone in the arena. Practice rotating your chest, moving across the ring, and throwing punches.\n"
-        "Save effective moves and chains with descriptions; they carry over to your fights.\n\n"
+        "OBJECTIVE: Master one physical movement at a time. Do not create multiple moves or chains for the same goal.\n"
+        "\n"
+        "ONE-MOVE LEARNING RULES:\n"
+        "1. FOCUS: Each session has one specific goal (e.g., 'recovery').\n"
+        "2. ITERATE: If a move fails, EDIT its joint angles and timing in the next trial. Do not rename it.\n"
+        "3. MASTERY: A move is MASTERED after 3 consecutive successful trials. Only mastered moves can be used in chains.\n"
+        "4. CHAINS: You can only create 'chain NAME = a, b' if 'a' and 'b' are already in your MASTERED_MOVES list.\n"
+        "5. DIAGNOSE: Use the physical diagnostics from the previous round to refine your motor rotations.\n"
+        "\n"
         + _WORLD_RULES + "\n"
         + _OFFICIAL_BODY_STRUCTURE + "\n"
         + _DECISION_PRIORITIES + "\n"
@@ -141,11 +148,16 @@ def practice_system(info, round_summaries=None):
 
 
 def fight_system(info, round_summaries=None, me="A"):
-    """System prompt for Fight Mode (Section 13)."""
+    """System prompt for Fight Mode (Execution of Mastered Skills)."""
     return (
         f"ROLE: You are Fighter {me} in FIGHT MODE.\n"
-        "OBJECTIVE: Defeat the opponent. You win if the enemy head or neck is destroyed, or if the enemy chest stays outside the arena wall for 10 seconds. Match limit is 60 seconds.\n"
-        "Use your saved moves and chains using 'do'.\n\n"
+        "OBJECTIVE: Defeat the opponent using your MASTERED MOVES and CHAINS.\n"
+        "\n"
+        "FIGHT EXECUTION RULES:\n"
+        "1. USE 'DO': Execute saved moves and chains using 'do NAME'.\n"
+        "2. PRIORITIZE: Use moves marked as MASTERED for maximum reliability.\n"
+        "3. NO CREATION: Do not create new moves or chains during a fight. Focus on tactical timing and selection.\n"
+        "\n"
         + _WORLD_RULES + "\n"
         + _OFFICIAL_BODY_STRUCTURE + "\n"
         + _DECISION_PRIORITIES + "\n"

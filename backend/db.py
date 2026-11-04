@@ -105,7 +105,15 @@ def save_library(conn, ai, lib):
 
 def load_library(conn, ai):
     r = _x(conn, "SELECT data FROM library WHERE ai=%s", (ai,)).fetchone()
-    return json.loads(r[0]) if r else dict(moves={}, chains={})
+    if not r:
+        return dict(moves={}, chains={}, move_descriptions={}, chain_descriptions={}, move_history={}, mastered_moves={}, mastered_chains={}, active_goal="recovery")
+    lib = json.loads(r[0])
+    # Ensure all new fields exist
+    lib.setdefault("move_history", {})
+    lib.setdefault("mastered_moves", {})
+    lib.setdefault("mastered_chains", {})
+    lib.setdefault("active_goal", "recovery")
+    return lib
 
 
 def save_run(conn, kind, setup, orders, frames, result, info):

@@ -1,6 +1,6 @@
 {
-  "summary": "Revised implementation plan including robot prompt decision priorities, physical feedback evaluation rules, and a new 'Delete All DB Data' button in the Database Manager.",
-  "updatedAt": "2026-11-04T13:55:01.381850516Z",
+  "summary": "Implementation plan for the One-Move Learning and Mastery practice system, featuring single-goal practice sessions, physical evaluation feedback loops, versioned move iteration, mastery verification across 3 consecutive successful tests, and strict separation between practice learning and fight execution.",
+  "updatedAt": "2026-11-04T15:11:42.246936966Z",
   "requestFeedback": true,
   "userFacing": true
 }
