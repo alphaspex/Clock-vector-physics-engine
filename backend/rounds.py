@@ -209,16 +209,23 @@ def fight(asks, info, notes, libs, interval, seconds=FIGHT_SECONDS, gap=3.0, off
 
     total_replay_frames = int(round(st.frame * LIVE_DT * FPS))
 
-    # Generate separate round summaries for Fighter A and Fighter B
+    # Generate separate round summaries for Fighter A and Fighter B concurrently
     round_summaries = ["", ""]
-    for f in range(2):
-        if interval_histories[f]:
-            try:
-                sum_ans = asks[f](prompts.round_summary_system(), prompts.round_summary_user(interval_histories[f]))
-                _add(usage, sum_ans.get("usage"))
-                round_summaries[f] = sum_ans.get("text", "").strip()
-            except Exception as e:
-                round_summaries[f] = f"Summary generation failed: {repr(e)}"
+    def _gen_summary(f):
+        if not interval_histories[f]:
+            return f, "", {}
+        try:
+            sum_ans = asks[f](prompts.round_summary_system(), prompts.round_summary_user(interval_histories[f]))
+            return f, sum_ans.get("text", "").strip(), sum_ans.get("usage", {})
+        except Exception as e:
+            return f, f"Summary generation failed: {repr(e)}", {}
+
+    with cf.ThreadPoolExecutor(2) as ex:
+        sum_futs = [ex.submit(_gen_summary, f) for f in range(2)]
+        for fut in sum_futs:
+            f, text, u = fut.result()
+            round_summaries[f] = text
+            _add(usage, u)
 
     return dict(
         libs=libs, orders=orders, frames=total_replay_frames, events=events, usage=usage, result=st.result,

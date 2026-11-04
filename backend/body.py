@@ -11,7 +11,7 @@ def _template():
     # 8 physical balls: CHEST, HEAD, and two arms (shoulder, elbow, fist)
     # Chest is the central ball. Neck is a connecting link (not a ball).
     P = [
-        ("chest", 0.0, 0.35, 0.0, 0.092, IRON, 4.0),
+        ("chest", 0.0, 0.35, 0.0, 0.092, IRON, 7.0),
         ("head", 0.0, 0.605, 0.0, 0.035, WOOD, 0.11),
     ]
     # Right arm (+X) and Left arm (-X)

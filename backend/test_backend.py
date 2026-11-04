@@ -82,9 +82,10 @@ ok(db.load_library(c, "A") == dict(moves={}, chains={"c2": []}) and db.load_libr
 n1 = db.save_run(c, "fight", dict(nf=2), [1], 90, "A", {}); n2 = db.save_run(c, "fight", dict(nf=2), [2], 30, None, {}); p1 = db.save_run(c, "practice", {}, [], 5, None, {})
 ok((n1, n2, p1) == (1, 2, 1) and db.load_run(c, "fight", 2)["orders"] == [2] and db.load_run(c, "fight", 9) is None and [r["n"] for r in db.list_runs(c, "fight")] == [1, 2], "runs numbered per kind")
 
-# --- frames
+# --- frames & body mass
 spec = body.build_spec(2); st = body.initial_state(spec)
 d, s = frames.describe(spec), frames.snapshot(spec, st)
+ok(abs(spec.m[spec.idx["chest"]] - 7.0) < 1e-3, f"chest ball mass is 7.0 kg (got {spec.m[spec.idx['chest']]:.2f})")
 ok(d["points"] == 44 and len(d["shapes"]) == 44 + 58 and len(s["p"]) == 132 and s["x"] == [], f"frame messages: {len(d['shapes'])} shapes, {len(json.dumps(s))} bytes/frame")
 
 # --- rounds with a scripted fake AI
@@ -98,6 +99,23 @@ a1 = lambda s, u: dict(text="x\nmove punch = R_shoulder 100,0 1 ; R_elbow 0 1\nd
 a2 = lambda s, u: dict(text="", usage=dict(prompt=0, completion=0, reasoning=0), error="HTTP 429: slow down")
 fr_ = rounds.fight([a1, a2], info, [[], []], [dict(moves={}, chains={})] * 2, interval=2, seconds=4, gap=1.0, offset_x=0.0)
 ok(len(fr_["orders"]) == 2 and all(o["f"] == 0 for o in fr_["orders"]) and fr_["frames"] == 120, "fight: AI B failed every call, A still acted, game continued")
+
+# --- dual AI call synchronization test
+finish_times = {}
+def ask_a(system, user):
+    time.sleep(0.01)
+    finish_times["A"] = time.time()
+    return dict(text="[THINKING] Fast AI call A thinking. [/THINKING]\nmove p = R_shoulder 90,0 1\ndo p", usage=dict(prompt=1, completion=1), error=None)
+
+def ask_b(system, user):
+    time.sleep(0.06)
+    finish_times["B"] = time.time()
+    return dict(text="[THINKING] Slow AI call B thinking. [/THINKING]\nmove p = L_shoulder 90,0 1\ndo p", usage=dict(prompt=1, completion=1), error=None)
+
+fr_sync = rounds.fight([ask_a, ask_b], info, [[], []], [dict(moves={}, chains={})] * 2, interval=2, seconds=2)
+ok(finish_times.get("A") is not None and finish_times.get("B") is not None, "dual AI test: both AI calls completed")
+ok(len(fr_sync["orders"]) == 2 and set(o["f"] for o in fr_sync["orders"]) == {0, 1}, "dual AI test: orders received and processed for both fighters A and B")
+ok(len(fr_sync["round_summaries"]) == 2, "dual AI test: concurrent round summaries returned for both fighters")
 
 # --- replay = same round
 for name, run in (("practice", pr), ("fight", fr_)):

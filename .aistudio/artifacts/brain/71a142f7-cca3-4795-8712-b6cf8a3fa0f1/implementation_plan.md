@@ -1,96 +1,69 @@
-# LLM System Prompt Update: Anatomy & Head Protection Notices
+# Dual Robot AI Synchronization, Concurrent Summaries & Chest Weight Update (7kg)
 
-Update `backend/prompts.py` system prompts to incorporate two vital directives for the AI model:
-1. **Upper-Body Anatomy Notice**: Inform the AI that it has **NO legs, knees, hips, ankles, or feet**, while keeping the existing official ASCII body structure tree strictly intact.
-2. **Head & Neck Safety Directive**: Instruct the AI to explicitly **protect its head and neck at all times**, avoiding self-damage or slamming its head into the ground/wall during chest locomotion or punching routines.
+Ensure dual robot fight rounds wait for both AI calls, execute end-of-round summaries concurrently, and update the robot chest mass from 4.0kg to 7.0kg with full verification across the physics engine and test suite.
+
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Confirmed user directives:
-> - **ASCII Tree**: Keep the existing `_OFFICIAL_BODY_STRUCTURE` ASCII tree structure strictly untouched.
-> - **Anatomy Clarification**: Append explicit notice informing the LLM that the body consists strictly of upper-body parts (CHEST, NECK, HEAD, RIGHT_ARM, LEFT_ARM) with zero lower-body parts (no knees, legs, hips, or feet).
-> - **Head & Neck Safety Directive (NEW)**: Add explicit safety rules warning the AI that head/neck destruction causes instant loss, requiring it to avoid hitting its own head against the ground/wall or striking itself during movements.
-> - **Tests**: Run Python backend tests (`test_official_spec.py` & `test_all.py`) to verify complete prompt and backend compatibility.
+> Key revisions included in this plan per user feedback:
+
+- **Chest Mass Update**: Increase chest ball mass in `backend/body.py` from 4.0 kg to 7.0 kg for improved physical stability, ensuring mass matrix `m`, inverse mass `w = 1/m`, drag coefficients, and motor effective mass (`meff`) adjust dynamically.
+- **Dual AI Synchronization**: Guarantee that in `fight(...)` (`backend/rounds.py`), the server dispatches AI calls for Fighter A and Fighter B concurrently and blocks until both complete before applying orders or ticking physics.
+- **Concurrent Summaries**: Execute Fighter A and Fighter B end-of-round AI summary generation concurrently using `ThreadPoolExecutor`.
+- **Automated Verification**: Implement dedicated unit tests in `backend/test_backend.py` with artificial timing delays to verify timing barriers and mass stability.
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Overview & Technical Goal
 
-- **What It Does**: Enhances the system prompts in `backend/prompts.py` so LLMs understand their physical anatomy and critical head/neck vulnerabilities during practice and fight rounds.
-- **Target Audience**: AI models generating 20-word thinking streams and motor commands for the biped simulation engine.
-- **Key Value**: Eliminates leg/knee command hallucinations and prevents accidental self-inflicted head/neck damage against the ground or during arm swings.
+1. **Body Spec Mass Update (`backend/body.py`)**:
+   - Update chest template entry from `("chest", 0.0, 0.35, 0.0, 0.092, IRON, 4.0)` to `("chest", 0.0, 0.35, 0.0, 0.092, IRON, 7.0)`.
+   - Ensure all dependent physics parameters (`w`, `kdrag`, motor effective mass `meff`, forces) compute correctly.
+2. **AI Call Synchronization & Summaries (`backend/rounds.py`)**:
+   - Verify concurrent dispatch and synchronization barrier for Fighter A & B in decision loops.
+   - Refactor end-of-round summaries to execute in parallel threads for both fighters.
+3. **Automated Verification (`backend/test_backend.py` & `backend/test_official_spec.py`)**:
+   - Test chest mass property and physics stability with 7.0 kg chest mass.
+   - Add asynchronous delay test to verify simulation wait behavior in dual robot fight rounds.
 
 ---
 
-## 2. Updated Prompt Specification
-
-In `backend/prompts.py`, `_OFFICIAL_BODY_STRUCTURE` will be updated to append the explicit anatomy and head safety notices while preserving the exact ASCII tree:
+## 2. Technical Architecture & Data Strategy
 
 ```
-OFFICIAL BODY STRUCTURE:
-FIGHTER
-└── CHEST (central ball, origin for all relative measurements)
-    └── NECK (connecting link, not a ball)
-        ├── HEAD (physical ball)
-        ├── RIGHT_ARM
-        │   ├── NECK_RIGHT_JOINT (connection force to chest/neck)
-        │   └── RIGHT_SHOULDER (physical ball)
-        │       └── SHOULDER_RIGHT_JOINT (connection force to shoulder)
-        │           └── RIGHT_ELBOW (physical ball)
-        │               └── ELBOW_RIGHT_JOINT (connection force to elbow)
-        │                   └── RIGHT_FIST (physical ball)
-        └── LEFT_ARM
-            ├── NECK_LEFT_JOINT (connection force to chest/neck)
-            └── LEFT_SHOULDER (physical ball)
-                └── SHOULDER_LEFT_JOINT (connection force to shoulder)
-                    └── LEFT_ELBOW (physical ball)
-                        └── ELBOW_LEFT_JOINT (connection force to elbow)
-                            └── LEFT_FIST (physical ball)
-
-CRITICAL ANATOMY NOTICE:
-- You are an upper-body bipedal torso only.
-- You have NO LEGS, NO KNEES, NO HIPS, NO ANKLES, and NO FEET.
-- Never attempt to issue commands, descriptions, or references to legs or knees.
-
-CRITICAL HEAD & NECK PROTECTION DIRECTIVE:
-- Protect your HEAD and NECK at all times. Head or neck destruction causes INSTANT DEFEAT.
-- DO NOT damage your own head or neck when executing movements, punches, or rotation routines.
-- DO NOT slam or drag your head into the ground or arena wall when crawling or shifting your chest.
-- Keep shoulders and elbows positioned to shield your neck and head from ground impact and opponent strikes.
+┌─────────────────────────────────────────────────────────┐
+│                    Fight Round Loop                     │
+│                                                         │
+│  ┌────────────────────┐         ┌────────────────────┐  │
+│  │  AI Call Fighter A │         │  AI Call Fighter B │  │
+│  │ (e.g., fast 5ms)   │         │ (e.g., slow 100ms) │  │
+│  └─────────┬──────────┘         └─────────┬──────────┘  │
+│            │                              │             │
+│            └──────────────┬───────────────┘             │
+│                           │                             │
+│                           ▼                             │
+│           ┌────────────────────────────────┐            │
+│           │   Synchronization Barrier     │            │
+│           │ [f.result() for f in futures]  │            │
+│           └───────────────┬────────────────┘            │
+│                           │                             │
+│                           ▼                             │
+│           ┌────────────────────────────────┐            │
+│           │ Apply Orders & Tick Physics    │            │
+│           │ (Chest Mass = 7.0 kg)          │            │
+│           └────────────────────────────────┘            │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Step-by-Step Implementation Strategy
 
-- **Decision 1: Direct Integration into `_OFFICIAL_BODY_STRUCTURE`**
-  - *Chosen Approach*: Keep the exact ASCII tree structure unchanged and append both critical notices directly under it in `_OFFICIAL_BODY_STRUCTURE`.
-  - *Why*: Ensures every prompt function (`practice_system` and `fight_system`) receives both the anatomical constraints and safety directives consistently.
-
----
-
-## 4. Technical Architecture & Verification
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    backend/prompts.py                       │
-├─────────────────────────────────────────────────────────────┤
-│  _OFFICIAL_BODY_STRUCTURE                                   │
-│  ├── ASCII Body Tree (CHEST, HEAD, ARMS) [UNTOUCHED]        │
-│  ├── CRITICAL ANATOMY NOTICE (NO LEGS/KNEES) [ADDED]        │
-│  └── HEAD & NECK PROTECTION DIRECTIVE [ADDED]              │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Imports
-┌──────────────────────────────▼──────────────────────────────┐
-│  practice_system() & fight_system() Prompt Generators       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Execution
-┌──────────────────────────────▼──────────────────────────────┐
-│  python3 backend/test_official_spec.py (Backend Tests Pass) │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Implementation & Verification Steps
-
-1. Update `backend/prompts.py` to append both notices to `_OFFICIAL_BODY_STRUCTURE`.
-2. Run `python3 backend/test_official_spec.py` and `python3 backend/test_all.py` to verify prompt generation and zero test regressions.
-3. Run `compile_applet` to verify clean build state.
+1. **`backend/body.py`**:
+   - Change chest mass template line to `7.0` kg.
+2. **`backend/rounds.py`**:
+   - Verify `fight` decision loop submits both `asks` to `ThreadPoolExecutor(2)` and blocks on `[x.result() for x in futs]`.
+   - Update end-of-round summary generation in `fight` to run both summary calls concurrently using `ThreadPoolExecutor(2)`.
+3. **`backend/test_backend.py` & `backend/test_all.py`**:
+   - Add unit tests verifying 7.0kg chest mass and synchronization behavior.
+   - Run full test suite (`test_all.py`, `test_backend.py`, `test_official_spec.py`) to confirm 100% pass rate.
