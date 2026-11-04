@@ -141,7 +141,7 @@ export default function LauncherPanel({
     <section className="panel launcher-panel" aria-label="Simulation launcher">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">CONTROL ROOM / 01</p>
+          <p className="eyebrow">ROBOTICS CONTROL ROOM / 01</p>
           <h2>New simulation</h2>
         </div>
         <span className="panel-icon"><Play size={16} /></span>
@@ -155,7 +155,7 @@ export default function LauncherPanel({
           className={mode === 'practice' ? 'is-active' : ''}
           onClick={() => setMode('practice')}
         >
-          Practice
+          Practice Drill
         </button>
         <button
           type="button"
@@ -164,7 +164,7 @@ export default function LauncherPanel({
           className={mode === 'fight' ? 'is-active' : ''}
           onClick={() => setMode('fight')}
         >
-          Fight
+          Dual Robot Test
         </button>
       </div>
 
@@ -172,11 +172,11 @@ export default function LauncherPanel({
         <form className="launcher-form" onSubmit={submitPractice}>
           <div className="field-grid field-grid--two">
             <label className="field">
-              <span className="field__label">AI memory</span>
+              <span className="field__label">Robot Entity Memory</span>
               <span className="select-wrap">
                 <select value={practiceAI} onChange={(event) => setPracticeAI(event.target.value as MemorySlot)}>
-                  <option value="A">Fighter A</option>
-                  <option value="B">Fighter B</option>
+                  <option value="A">Robot Alpha</option>
+                  <option value="B">Robot Beta</option>
                 </select>
                 <ChevronDown size={15} aria-hidden="true" />
               </span>
@@ -222,9 +222,9 @@ export default function LauncherPanel({
           <div className="fighter-config">
             <div className="fighter-config__heading">
               <span className="fighter-mark">A</span>
-              <strong>Fighter A</strong>
+              <strong>Robot Alpha</strong>
             </div>
-            <ProviderModelSelector label="Fighter A" />
+            <ProviderModelSelector label="Robot Alpha" />
             <SelectField
               label="Reasoning effort"
               value={effortA}
@@ -236,9 +236,9 @@ export default function LauncherPanel({
           <div className="fighter-config">
             <div className="fighter-config__heading">
               <span className="fighter-mark fighter-mark--b">B</span>
-              <strong>Fighter B</strong>
+              <strong>Robot Beta</strong>
             </div>
-            <ProviderModelSelector label="Fighter B" />
+            <ProviderModelSelector label="Robot Beta" />
             <SelectField
               label="Reasoning effort"
               value={effortB}

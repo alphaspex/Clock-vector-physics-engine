@@ -431,7 +431,7 @@ export default function LiveLogsPanel({ backendOnline, adminToken }: Props) {
             <span className="dot dot--yellow" />
             <span className="dot dot--green" />
           </div>
-          <span className="terminal-title">fighter-backend: live stdout & event pipe</span>
+          <span className="terminal-title">cvector-physics-engine: live stdout & event pipe</span>
           <div className="terminal-meta">
             {backendOnline ? (
               <span className="text-good flex items-center gap-1 font-mono">

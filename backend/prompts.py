@@ -32,6 +32,17 @@ _OFFICIAL_BODY_STRUCTURE = (
     "                    └── LEFT_ELBOW (physical ball)\n"
     "                        └── ELBOW_LEFT_JOINT (connection force to elbow)\n"
     "                            └── LEFT_FIST (physical ball)\n"
+    "\n"
+    "CRITICAL ANATOMY NOTICE:\n"
+    "- You are an upper-body bipedal torso only.\n"
+    "- You have NO LEGS, NO KNEES, NO HIPS, NO ANKLES, and NO FEET.\n"
+    "- Never attempt to issue commands, descriptions, or references to legs or knees.\n"
+    "\n"
+    "CRITICAL HEAD & NECK PROTECTION DIRECTIVE:\n"
+    "- Protect your HEAD and NECK at all times. Head or neck destruction causes INSTANT DEFEAT.\n"
+    "- DO NOT damage your own head or neck when executing movements, punches, or rotation routines.\n"
+    "- DO NOT slam or drag your head into the ground or arena wall when crawling or shifting your chest.\n"
+    "- Keep shoulders and elbows positioned to shield your neck and head from ground impact and opponent strikes.\n"
 )
 
 _POSITION_VOCABULARY = (

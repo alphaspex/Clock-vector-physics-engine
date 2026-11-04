@@ -83,8 +83,8 @@ export default function App() {
             <span />
           </div>
           <div>
-            <p className="brand-kicker">MOTION STUDY / CONTROL ROOM</p>
-            <h1>Fighter Simulation</h1>
+            <p className="brand-kicker">ROBOTICS KINEMATICS / CONTROL ROOM</p>
+            <h1>Cvector Physics Engine</h1>
           </div>
         </div>
 
@@ -397,7 +397,7 @@ export default function App() {
 
 
       <footer className="global-footer">
-        <span>FIGHTER CONTROL ROOM / 2.0.0</span>
+        <span>CVECTOR PHYSICS ENGINE / 2.0.0</span>
         <span>
           <Github size={12} /> Static Client · Python API · Three.js
         </span>

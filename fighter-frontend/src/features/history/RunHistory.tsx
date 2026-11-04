@@ -100,7 +100,7 @@ export default function RunHistory({
           }}
         >
           <Swords size={12} />
-          <span>Fights</span>
+          <span>Dual Tests</span>
           <span className="tab-count">{fightRuns.length}</span>
         </button>
         <button
@@ -114,7 +114,7 @@ export default function RunHistory({
           }}
         >
           <Target size={12} />
-          <span>Practice</span>
+          <span>Practice Drills</span>
           <span className="tab-count">{practiceRuns.length}</span>
         </button>
       </div>

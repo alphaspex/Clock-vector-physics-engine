@@ -1,6 +1,6 @@
 {
-  "summary": "Plan to remove Meta model provider options from Practice and Fight launcher forms, restricting simulation runs to Baseten while preserving Meta API diagnostic testing in Live Control Room.",
-  "updatedAt": "2026-11-04T12:21:29.075418115Z",
+  "summary": "Updated implementation plan for updating backend/prompts.py to explicitly inform LLMs that they have zero legs/knees AND must protect their head and neck from ground impact or self-damage during movement.",
+  "updatedAt": "2026-11-04T12:47:46.053623940Z",
   "requestFeedback": true,
   "userFacing": true
 }

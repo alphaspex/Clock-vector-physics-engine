@@ -107,11 +107,10 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
             <Brain size={28} style={{ color: '#888' }} />
           </div>
           <h2 style={{ fontSize: 18, fontWeight: 600, color: '#f0f0f0', marginBottom: 8 }}>
-            No Live Simulation Running
+            No Live Robot Simulation Running
           </h2>
           <p style={{ maxWidth: 440, margin: '0 auto 24px', color: '#888', fontSize: 13, lineHeight: 1.6 }}>
-            The AI Thinking Stream monitors real-time cognitive reasoning and interval decisions as fighters deliberate
-            during live rounds.
+            The AI Thinking Stream monitors real-time cognitive reasoning and kinematic trajectory decisions as biped robots deliberate during live simulation cycles.
           </p>
           {onOpenLauncher && (
             <button
@@ -150,7 +149,7 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
             <span className="monitoring-stat__label">Match Stream</span>
             <span className="monitoring-stat__val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {isFight ? <Swords size={14} style={{ color: '#e04b38' }} /> : <Flame size={14} style={{ color: '#4da6ff' }} />}
-              {isFight ? 'Fight Match' : 'Practice Drill'}
+              {isFight ? 'Dual Robot Match' : 'Kinematic Practice Drill'}
             </span>
           </div>
 
@@ -222,10 +221,10 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
 
       {/* Main Stacked Cards Container */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
-        {/* Fighter A Stacked Card */}
+        {/* Robot Alpha Stacked Card */}
         <ThinkingHeroCard
           fighter="A"
-          roleTitle={isFight ? 'Fighter A (Challenger)' : 'Practice Fighter A'}
+          roleTitle={isFight ? 'Robot Alpha (Primary)' : 'Practice Robot Alpha'}
           themeColor="#4da6ff"
           preset={metaParams.presetA}
           effort={metaParams.effortA}
@@ -238,11 +237,11 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
           isCopied={copiedKey === 'hero-A'}
         />
 
-        {/* Fighter B Stacked Card (in Fight mode) */}
+        {/* Robot Beta Stacked Card (in Fight mode) */}
         {isFight && (
           <ThinkingHeroCard
             fighter="B"
-            roleTitle="Fighter B (Opponent)"
+            roleTitle="Robot Beta (Secondary)"
             themeColor="#ff9933"
             preset={metaParams.presetB}
             effort={metaParams.effortB}
@@ -611,7 +610,7 @@ function ThinkingHeroCard({
         {!hasText ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#666', fontStyle: 'italic', fontSize: 13, padding: '12px 0' }}>
             <Brain size={18} style={{ opacity: 0.5 }} />
-            <span>Awaiting initial deliberation from Fighter {fighter}…</span>
+            <span>Awaiting initial deliberation from Robot {fighter}…</span>
           </div>
         ) : (
           <>
