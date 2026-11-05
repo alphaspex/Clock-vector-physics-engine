@@ -1,5 +1,6 @@
 # AI Physical Engine
 https://clock-board-ui.onrender.com
+render slow 30s start
 
 ## Give AI a body. Let physics decide.
 
