@@ -1,6 +1,0 @@
-{
-  "name": "Fighter Simulation Control Room",
-  "description": "AI-driven stick fighter simulation control room, monitoring dashboard, and 3D TV replay console",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
