@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan to audit and test physics contact collision restitution and friction coefficients in contacts.py and config.py.",
-  "updatedAt": "2026-11-04T19:36:22.611130589Z",
-  "requestFeedback": true,
-  "userFacing": true
-}
