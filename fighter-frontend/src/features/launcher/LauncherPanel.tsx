@@ -15,7 +15,7 @@ interface Props {
   activeThinking?: import('../../core/commands').ThinkingItem;
 }
 
-const BASETEN_FIXED_IDENTIFIER = 'meta-models/muse-spark-open-1026';
+const BASETEN_FIXED_IDENTIFIER = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 
 const EFFORTS: ReasoningMode[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -51,7 +51,7 @@ function SelectField<T extends string>({
 
 /**
  * Provider and Model display showing Baseten as the exclusive fixed provider
- * (meta-models/muse-spark-open-1026) for simulations.
+ * (deepseek-ai/DeepSeek-V4.1-Flash-1017) for simulations.
  */
 function ProviderModelSelector({
   label,
@@ -78,7 +78,7 @@ function ProviderModelSelector({
         </div>
       </div>
       <p className="micro-note">
-        Fixed model: meta-models/muse-spark-open-1026 (developer role, fixed model)
+        Fixed model: deepseek-ai/DeepSeek-V4.1-Flash-1017 (system role, fixed model)
       </p>
     </div>
   );
