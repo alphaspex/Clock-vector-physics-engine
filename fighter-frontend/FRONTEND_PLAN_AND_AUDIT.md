@@ -47,14 +47,14 @@ Fight:
 ```json
 {
   "presetA": "meta_contrib",
-  "presetB": "baseten",
+  "presetB": "meta",
   "interval": 3,
   "effortA": "minimal",
   "effortB": "minimal"
 }
 ```
 
-Supported providers in `config.py`: `meta`, `meta_contrib`, `baseten`.
+Supported providers in `config.py`: `meta`, `meta_contrib`.
 
 Supported efforts in `config.py`: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`.
 

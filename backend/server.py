@@ -1,5 +1,5 @@
 """SERVER: the only file with sockets, threads and secrets. Wires api + db + ai_call + rounds + replay.
-Environment: DATABASE_URL (Postgres), MODEL_API_KEY (Meta), BASETEN_API_KEY, ADMIN_TOKEN, PORT.
+Environment: DATABASE_URL (Postgres), MODEL_API_KEY (Meta), ADMIN_TOKEN, PORT.
 Run: python server.py     Needs: numpy, psycopg2-binary (Postgres only)"""
 import json, os, threading, uuid, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

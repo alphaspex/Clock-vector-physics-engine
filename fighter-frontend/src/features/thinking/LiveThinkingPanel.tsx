@@ -108,7 +108,7 @@ export default function LiveThinkingPanel({ jobs, onOpenLauncher }: Props) {
     const efforts = Array.isArray(p.efforts) ? p.efforts : [];
     return {
       presetA: (p.presetA as string) || (presets[0] as string) || (p.preset as string) || 'meta_contrib',
-      presetB: (p.presetB as string) || (presets[1] as string) || 'baseten',
+      presetB: (p.presetB as string) || (presets[1] as string) || 'meta',
       effortA: (p.effortA as string) || (efforts[0] as string) || (p.effort as string) || 'minimal',
       effortB: (p.effortB as string) || (efforts[1] as string) || 'minimal',
       interval: Number(p.interval || 3),

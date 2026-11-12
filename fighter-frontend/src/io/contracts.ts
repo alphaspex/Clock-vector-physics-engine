@@ -25,15 +25,15 @@ export interface RunsWireResponse {
 
 export interface StartPracticeWireInput {
   ai: 'A' | 'B';
-  preset: 'meta' | 'meta_contrib' | 'baseten';
+  preset: 'meta' | 'meta_contrib';
   interval: number;
   effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   duration_minutes?: number;
 }
 
 export interface StartFightWireInput {
-  presetA: 'meta' | 'meta_contrib' | 'baseten';
-  presetB: 'meta' | 'meta_contrib' | 'baseten';
+  presetA: 'meta' | 'meta_contrib';
+  presetB: 'meta' | 'meta_contrib';
   interval: number;
   effortA: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   effortB: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';

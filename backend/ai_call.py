@@ -1,4 +1,4 @@
-"""AI_CALL: talks to model APIs (OpenAI / Meta responses API).
+"""AI_CALL: talks to model APIs (Meta responses API).
 call(preset, system, user, effort, max_tokens, api_key, ...)
    OUT: dict(text, usage={prompt, completion, reasoning}, error)"""
 import json, time, urllib.request, urllib.error
@@ -163,7 +163,7 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                 return res
 
             else:
-                # Generic provider (Baseten) using standard format and urllib
+                # Standard HTTP fallback using urllib
                 ep = preset.get("endpoint", "/chat/completions")
                 url, headers = preset["base"] + ep, {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
                 body = {

@@ -8,7 +8,7 @@
 
 export type SimulationKind = 'practice' | 'fight';
 export type MemorySlot = 'A' | 'B';
-export type ModelProvider = 'meta' | 'meta_contrib' | 'baseten';
+export type ModelProvider = 'meta' | 'meta_contrib';
 export type ReasoningMode = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface PracticeCommand {

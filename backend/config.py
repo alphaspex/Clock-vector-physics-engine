@@ -27,11 +27,10 @@ REACHED = 0.12        # a step counts as done when its motors are this close (li
 DAMAGE_MIN_SPEED = 0.3
 BOUNCE_MIN_SPEED = 0.5
 
-# ---- AI providers (from dev.meta.ai/docs and baseten.co/library) ----
+# ---- AI providers (from dev.meta.ai/docs) ----
 PROVIDERS = {
     "meta":         dict(base="https://api.meta.ai/v1", model="muse-spark-1.3", key_env="MODEL_API_KEY", effort=True, role="system", endpoint="/responses"),
     "meta_contrib": dict(base="https://api.meta.ai/v1", model="muse-spark-1.3-contributor", key_env="MODEL_API_KEY", effort=True, role="system", endpoint="/responses"),
-    "baseten":      dict(base="https://inference.baseten.co/v1", model="deepseek-ai/DeepSeek-V4.1-Flash-1017", key_env="BASETEN_API_KEY", effort=False, role="system", endpoint="/chat/completions"),
 }
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max")   # "none" is rejected by Muse Spark (HTTP 400)
 PRACTICE_EFFORT, FIGHT_EFFORT, NOTE_EFFORT = "high", "minimal", "low"

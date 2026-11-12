@@ -41,7 +41,6 @@ This monorepo deploys as two interconnected services on Render:
    - `DATABASE_URL`: Connection string from your Render PostgreSQL database (`postgres://...`)
    - `ADMIN_TOKEN`: Secure secret string for authenticating run starts and admin operations
    - `MODEL_API_KEY`: API key for Meta AI providers (`api.meta.ai`)
-   - `BASETEN_API_KEY`: API key for Baseten provider (`inference.baseten.co`)
 5. Note your backend URL (e.g., `https://fighter-backend.onrender.com`).
 
 ### B. Frontend (Render Static Site)
@@ -64,7 +63,6 @@ This monorepo deploys as two interconnected services on Render:
 | `DATABASE_URL` | Backend | Optional | PostgreSQL connection string (`postgres://...`). Defaults to SQLite file `fighter.db` if unset. |
 | `ADMIN_TOKEN` | Backend | Required for launch/admin | Secret authentication token verified against the `X-Token` request header. |
 | `MODEL_API_KEY` | Backend | Required for Meta | Bearer token for `https://api.meta.ai/v1`. |
-| `BASETEN_API_KEY` | Backend | Required for Baseten | Bearer token for `https://inference.baseten.co/v1`. |
 | `PORT` | Backend | Optional | HTTP listen port (default `8000`). |
 | `VITE_API_BASE_URL` | Frontend | Required | Base URL of the backend web service (baked into the frontend bundle at build time). |
 
@@ -72,17 +70,12 @@ This monorepo deploys as two interconnected services on Render:
 
 ## 4. AI Provider & Model Configuration
 
-The application strictly supports two provider families:
+The application strictly uses the **Meta AI** Responses API (`https://api.meta.ai/v1`):
 
-### Meta
+### Meta Models
 - **Muse Spark 1.3 Contributor** (Preset: `meta_contrib`, Model ID: `muse-spark-1.3-contributor`)
 - **Muse Spark 1.3** (Preset: `meta`, Model ID: `muse-spark-1.3`)
 - Uses `MODEL_API_KEY`, sends `system` role prompt messages, and supports reasoning effort levels (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
-
-### Baseten
-- **Fixed Model**: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (Preset: `baseten`)
-- Uses `BASETEN_API_KEY`, sends `system` role prompt messages.
-- Read-only in the UI without arbitrary model selection or silent fallback.
 
 ---
 
@@ -118,7 +111,7 @@ From repository root:
 # Verify backend Python files compile cleanly
 npm run build:backend
 
-# Run automated tests for API, DB catalog, duration, and Baseten model identifier
+# Run automated tests for API, DB catalog, and duration
 npm run test:backend
 
 # Verify frontend TypeScript types

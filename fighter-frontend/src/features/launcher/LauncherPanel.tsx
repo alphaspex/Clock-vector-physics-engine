@@ -15,7 +15,12 @@ interface Props {
   activeThinking?: import('../../core/commands').ThinkingItem;
 }
 
-const BASETEN_FIXED_IDENTIFIER = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
+const META_PROVIDERS: ModelProvider[] = ['meta_contrib', 'meta'];
+
+const META_PROVIDER_LABELS: Record<ModelProvider, string> = {
+  meta_contrib: 'Muse Spark 1.3 Contributor (meta_contrib)',
+  meta: 'Muse Spark 1.3 (meta)',
+};
 
 const EFFORTS: ReasoningMode[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -50,35 +55,39 @@ function SelectField<T extends string>({
 }
 
 /**
- * Provider and Model display showing Baseten as the exclusive fixed provider
- * (deepseek-ai/DeepSeek-V4.1-Flash-1017) for simulations.
+ * Provider and Model display showing Meta AI with configurable model presets
+ * (Muse Spark 1.3 Contributor or Muse Spark 1.3).
  */
 function ProviderModelSelector({
   label,
+  value,
+  onChange,
 }: {
   label: string;
+  value: ModelProvider;
+  onChange: (value: ModelProvider) => void;
 }) {
   return (
     <div className="provider-block">
       <div className="field-grid field-grid--two">
         <div className="field">
           <span className="field__label">{label} Provider</span>
-          <div className="readonly-badge" title="Baseten is the active simulation provider">
+          <div className="readonly-badge" title="Meta AI Responses API">
             <Cpu size={12} />
-            <span>Baseten</span>
+            <span>Meta AI</span>
           </div>
         </div>
 
-        <div className="field">
-          <span className="field__label">Baseten Model (Fixed)</span>
-          <div className="readonly-badge" title="Baseten uses fixed open model">
-            <Cpu size={12} />
-            <span>{BASETEN_FIXED_IDENTIFIER}</span>
-          </div>
-        </div>
+        <SelectField
+          label="Meta Model Preset"
+          value={value}
+          values={META_PROVIDERS}
+          onChange={onChange}
+          descriptions={META_PROVIDER_LABELS}
+        />
       </div>
       <p className="micro-note">
-        Fixed model: deepseek-ai/DeepSeek-V4.1-Flash-1017 (system role, fixed model)
+        Meta responses endpoint with reasoning effort support.
       </p>
     </div>
   );
@@ -96,7 +105,7 @@ export default function LauncherPanel({
 }: Props) {
   const [mode, setMode] = useState<Mode>('practice');
   const [practiceAI, setPracticeAI] = useState<MemorySlot>('A');
-  const [practicePreset] = useState<ModelProvider>('baseten');
+  const [practicePreset, setPracticePreset] = useState<ModelProvider>('meta_contrib');
   const [practiceEffort, setPracticeEffort] = useState<ReasoningMode>('medium');
   const [practiceInterval, setPracticeInterval] = useState(3);
   const [practiceDuration, setPracticeDuration] = useState(3.0);
@@ -117,8 +126,8 @@ export default function LauncherPanel({
     'Custom task',
   ];
 
-  const [presetA] = useState<ModelProvider>('baseten');
-  const [presetB] = useState<ModelProvider>('baseten');
+  const [presetA, setPresetA] = useState<ModelProvider>('meta_contrib');
+  const [presetB, setPresetB] = useState<ModelProvider>('meta');
   const [effortA, setEffortA] = useState<ReasoningMode>('minimal');
   const [effortB, setEffortB] = useState<ReasoningMode>('minimal');
   const [fightInterval, setFightInterval] = useState(3);
@@ -251,7 +260,7 @@ export default function LauncherPanel({
             </div>
           )}
 
-          <ProviderModelSelector label="Practice" />
+          <ProviderModelSelector label="Practice" value={practicePreset} onChange={setPracticePreset} />
 
           <button className="button button--primary button--wide" type="submit" disabled={!canLaunch}>
             <Play size={15} fill="currentColor" /> Start practice
@@ -264,7 +273,7 @@ export default function LauncherPanel({
               <span className="fighter-mark">A</span>
               <strong>Robot Alpha</strong>
             </div>
-            <ProviderModelSelector label="Robot Alpha" />
+            <ProviderModelSelector label="Robot Alpha" value={presetA} onChange={setPresetA} />
             <SelectField
               label="Reasoning effort"
               value={effortA}
@@ -278,7 +287,7 @@ export default function LauncherPanel({
               <span className="fighter-mark fighter-mark--b">B</span>
               <strong>Robot Beta</strong>
             </div>
-            <ProviderModelSelector label="Robot Beta" />
+            <ProviderModelSelector label="Robot Beta" value={presetB} onChange={setPresetB} />
             <SelectField
               label="Reasoning effort"
               value={effortB}
