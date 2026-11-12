@@ -38,7 +38,7 @@ This monorepo deploys as two interconnected services on Render:
    - **Start Command** (if Python): `python server.py`
 4. **Environment Variables**:
    - `PORT`: `8000` (Render default is 10000 or custom)
-   - `DATABASE_URL`: Connection string from your Render PostgreSQL database (`postgres://...`)
+   - `DATABASE_URL`: Connection string from Render PostgreSQL. **Note**: If your backend Web Service is running on Render in the **same region** as the database, use the **Internal Database URL** (`postgres://...dpg-xxxx-a/...`). If connecting from outside Render (local machine/testing) or across different regions, use the **External Database URL** (`postgres://...dpg-xxxx-a.<region>-postgres.render.com/...`).
    - `ADMIN_TOKEN`: Secure secret string for authenticating run starts and admin operations
    - `MODEL_API_KEY`: API key for Meta AI providers (`api.meta.ai`)
 5. Note your backend URL (e.g., `https://fighter-backend.onrender.com`).
@@ -60,7 +60,7 @@ This monorepo deploys as two interconnected services on Render:
 
 | Variable | Service | Required | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | Backend | Optional | PostgreSQL connection string (`postgres://...`). Defaults to SQLite file `fighter.db` if unset. |
+| `DATABASE_URL` | Backend | Optional | PostgreSQL connection string (`postgres://...`). Defaults to SQLite file `fighter.db` if unset or if Postgres is unreachable. Use **Internal Database URL** inside Render (same region), or **External Database URL** (with `.render.com` domain) when connecting from outside Render. |
 | `ADMIN_TOKEN` | Backend | Required for launch/admin | Secret authentication token verified against the `X-Token` request header. |
 | `MODEL_API_KEY` | Backend | Required for Meta | Bearer token for `https://api.meta.ai/v1`. |
 | `PORT` | Backend | Optional | HTTP listen port (default `8000`). |

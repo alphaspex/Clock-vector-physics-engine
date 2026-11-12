@@ -12,7 +12,27 @@ import json, time
 def connect(dsn):
     if dsn and dsn.startswith(("postgres://", "postgresql://")):
         import psycopg2
-        return psycopg2.connect(dsn)
+        try:
+            return psycopg2.connect(dsn)
+        except psycopg2.OperationalError as e:
+            import sys
+            err_msg = str(e).strip()
+            print(f"[DATABASE ERROR] Could not connect to PostgreSQL: {err_msg}", file=sys.stderr)
+            if "could not translate host name" in err_msg and "dpg-" in dsn:
+                print(
+                    "[RENDER POSTGRES DETECTED] The database host is a Render internal address ('dpg-xxxx-a').\n"
+                    "  - If connecting outside Render (or across different regions), use the 'External Database URL' from the Render dashboard (ends in .render.com).\n"
+                    "  - If connecting within Render, ensure both your Web Service and PostgreSQL database are in the same region.\n"
+                    "Falling back to local SQLite 'fighter.db' so the server can run without crashing.",
+                    file=sys.stderr,
+                )
+            try:
+                import server_logs
+                server_logs.emit("WARN", "DATABASE", f"PostgreSQL connection failed ({err_msg}); fell back to SQLite fighter.db", error=err_msg)
+            except Exception:
+                pass
+            import sqlite3
+            return sqlite3.connect("fighter.db", check_same_thread=False)
     import sqlite3
     return sqlite3.connect(dsn or "fighter.db", check_same_thread=False)
 

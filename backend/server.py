@@ -58,8 +58,8 @@ def _set_model_override(preset, model):
 
 def _check_api(preset):
     p = _get_provider_config(preset); key = os.environ.get(p["key_env"], "")
-    # Simple check call
-    res = ai_call.call(p, "You are a diagnostic tool.", "Respond with 'OK' and nothing else.", "minimal", 10, key)
+    # Simple check call (Meta requires max_output_tokens >= 16)
+    res = ai_call.call(p, "You are a diagnostic tool.", "Respond with 'OK' and nothing else.", "minimal", 32, key)
     if res.get("error"):
         return dict(ok=False, error=res["error"], model=p["model"])
     return dict(ok=True, text=res["text"], model=p["model"], elapsed_ms=res.get("elapsed_ms"))

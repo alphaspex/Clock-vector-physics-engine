@@ -48,3 +48,33 @@ def test_meta_request_respects_configured_token_budget_and_only_collects_output(
     assert fake.payload["max_output_tokens"] == 640
     assert result["text"] == "MY FIGHTER"
     assert result["error"] is None
+
+
+def test_meta_request_clamps_max_tokens_to_minimum_16(monkeypatch):
+    fake = _FakeRequests()
+    monkeypatch.setattr(ai_call, "requests", fake)
+    preset = {
+        "base": "https://api.meta.ai/v1",
+        "model": "test-model",
+        "role": "system",
+        "effort": True,
+    }
+
+    result = ai_call.call(
+        preset, "system", "user", "minimal", 10, "test-key", retries=0,
+    )
+
+    assert fake.payload["max_output_tokens"] == 16
+    assert result["text"] == "MY FIGHTER"
+    assert result["error"] is None
+
+
+if __name__ == "__main__":
+    class _MonkeyPatch:
+        def setattr(self, target, name, value):
+            setattr(target, name, value)
+
+    mp = _MonkeyPatch()
+    test_meta_request_respects_configured_token_budget_and_only_collects_output(mp)
+    test_meta_request_clamps_max_tokens_to_minimum_16(mp)
+    print("All ai_call tests passed successfully!")

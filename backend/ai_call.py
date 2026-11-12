@@ -91,9 +91,9 @@ def call(preset, system, user, effort, max_tokens, api_key, timeout=120, retries
                     "input": [{"role": preset["role"], "content": system}, {"role": "user", "content": user}],
                     "stream": True,
                     "temperature": 1,
-                    # Respect the caller's per-purpose budget. The previous
-                    # hard-coded 32k cap made even short digest calls unbounded.
-                    "max_output_tokens": max(1, int(max_tokens)),
+                    # Respect the caller's per-purpose budget. Meta requires
+                    # max_output_tokens >= 16 (less than 16 causes HTTP 400 invalid_request_error).
+                    "max_output_tokens": max(16, int(max_tokens)),
                     "top_p": 1,
                 }
                 if preset["effort"] and effort and effort != "none":
